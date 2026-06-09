@@ -144,6 +144,13 @@ input:focus {
   align-items: end;
 }
 
+.restore-button {
+  grid-column: 2 / -1;
+  color: var(--amber);
+  border-color: rgba(255, 189, 63, 0.58);
+  background: rgba(255, 189, 63, 0.08);
+}
+
 .message {
   grid-column: 1 / -1;
   min-height: 1.4em;

@@ -40,6 +40,8 @@ const STATUS_LABELS = {
   finished: "已结束"
 };
 const REQUEST_TIMEOUT_MS = 10000;
+const SESSION_STORAGE_KEY = "ai-tank-duel:last-session";
+const ACTIVE_SESSION_STORAGE_KEY = "ai-tank-duel:active-session";
 
 const appState = {
   room: null,
@@ -64,8 +66,8 @@ app.innerHTML = `
       </div>
       <div class="hero-card">
         <span>当前版本</span>
-        <strong>MVP-02</strong>
-        <small>房间同步 + 服务端战斗</small>
+        <strong>MVP-03</strong>
+        <small>分享链接 + 身份恢复</small>
       </div>
     </section>
 
@@ -84,6 +86,7 @@ app.innerHTML = `
         <input id="roomCodeInput" maxlength="6" placeholder="输入房间码" />
         <button id="joinRoomButton">加入房间</button>
       </div>
+      <button class="restore-button" id="restoreSessionButton" hidden>恢复上次身份</button>
       <p class="message" id="lobbyMessage"></p>
     </section>
 
@@ -95,7 +98,7 @@ app.innerHTML = `
           <p id="currentPlayerText">当前身份：-</p>
           <div class="status-chip wide" id="statusChip">等待中</div>
           <div class="players-list" id="playersList"></div>
-          <button id="copyRoomButton">复制房间码</button>
+          <button id="copyRoomButton">复制邀请链接</button>
           <p class="message" id="roomMessage"></p>
         </article>
 
@@ -166,6 +169,7 @@ const elements = {
   roomCodeInput: document.querySelector("#roomCodeInput"),
   createRoomButton: document.querySelector("#createRoomButton"),
   joinRoomButton: document.querySelector("#joinRoomButton"),
+  restoreSessionButton: document.querySelector("#restoreSessionButton"),
   lobbyMessage: document.querySelector("#lobbyMessage"),
   roomCodeText: document.querySelector("#roomCodeText"),
   currentPlayerText: document.querySelector("#currentPlayerText"),
@@ -200,6 +204,7 @@ elements.presetButtons.innerHTML = Object.keys(builtInRuleSets)
 elements.createRoomButton.addEventListener("click", createRoom);
 elements.joinRoomButton.addEventListener("click", joinRoom);
 elements.copyRoomButton.addEventListener("click", copyRoomCode);
+elements.restoreSessionButton.addEventListener("click", () => restoreSavedSession());
 elements.generateButton.addEventListener("click", generateRules);
 elements.confirmButton.addEventListener("click", confirmRules);
 elements.restartButton.addEventListener("click", restartRoom);
@@ -214,7 +219,34 @@ elements.presetButtons.querySelectorAll("[data-preset]").forEach((button) => {
   });
 });
 
+initializeFromLocation();
 renderApp();
+
+function initializeFromLocation() {
+  const urlRoomCode = normalizeRoomCode(new URLSearchParams(window.location.search).get("room"));
+  if (urlRoomCode) {
+    elements.roomCodeInput.value = urlRoomCode;
+    setMessage(`已从邀请链接填入房间 ${urlRoomCode}，输入昵称后点击加入房间。`);
+  }
+
+  const activeSession = loadActiveSession();
+  if (activeSession && (!urlRoomCode || urlRoomCode === activeSession.roomCode)) {
+    void restoreSavedSession({ session: activeSession, auto: true });
+    return;
+  }
+
+  const session = loadSession();
+  if (!session) {
+    return;
+  }
+
+  elements.restoreSessionButton.hidden = false;
+  elements.restoreSessionButton.textContent = `恢复 ${session.playerId} 方身份（${session.roomCode}）`;
+  if (!urlRoomCode) {
+    elements.roomCodeInput.value = session.roomCode;
+    setMessage(`检测到上次房间 ${session.roomCode}，可恢复 ${session.playerId} 方身份。`);
+  }
+}
 
 async function createRoom() {
   try {
@@ -229,7 +261,7 @@ async function createRoom() {
 
 async function joinRoom() {
   try {
-    const code = elements.roomCodeInput.value.trim().toUpperCase();
+    const code = normalizeRoomCode(elements.roomCodeInput.value);
     if (!code) {
       setMessage("请输入房间码");
       return;
@@ -244,12 +276,49 @@ async function joinRoom() {
   }
 }
 
+async function restoreSavedSession({ session = loadSession(), auto = false } = {}) {
+  if (!session) {
+    elements.restoreSessionButton.hidden = true;
+    if (!auto) {
+      setMessage("没有可恢复的玩家身份。");
+    }
+    return;
+  }
+
+  try {
+    const response = await getJson(`/api/rooms/${encodeURIComponent(session.roomCode)}`);
+    const player = response.room.players.find((item) => item.id === session.playerId);
+    if (!player) {
+      clearSession();
+      clearActiveSession();
+      elements.restoreSessionButton.hidden = true;
+      setMessage("上次身份已失效，请重新创建或加入房间。");
+      return;
+    }
+
+    enterRoom(response.room, session.playerId);
+    setMessage(`${auto ? "刷新后已自动恢复" : "已恢复"} ${session.playerId} 方身份，回到房间 ${session.roomCode}。`);
+  } catch (error) {
+    if (error.status === 404) {
+      clearSession();
+      clearActiveSession();
+      elements.restoreSessionButton.hidden = true;
+      setMessage(`${error.message} 请重新创建或加入房间。`);
+      return;
+    }
+
+    setMessage(`${error.message} 稍后可再次尝试恢复。`);
+  }
+}
+
 function enterRoom(room, playerId) {
   appState.room = room;
   appState.playerId = playerId;
   appState.generatedRuleSet = null;
   appState.gameState = room.gameState;
   elements.strategyPrompt.value = DEFAULT_PROMPTS[playerId] || DEFAULT_PROMPTS.A;
+  saveSession(room.code, playerId);
+  updateRoomUrl(room.code);
   connectEvents(room.code, playerId);
   setMessage(`你已作为 ${playerId} 方进入房间 ${room.code}`);
   renderApp();
@@ -332,7 +401,7 @@ async function getJson(url, options = {}) {
   const data = await readJsonResponse(response);
 
   if (!response.ok) {
-    throw new Error(data.error || "请求失败");
+    throwHttpError(response, data);
   }
 
   return data;
@@ -410,18 +479,24 @@ async function copyRoomCode() {
     return;
   }
 
+  const inviteUrl = createInviteUrl(appState.room.code);
   try {
-    await navigator.clipboard.writeText(appState.room.code);
-    setMessage("房间码已复制");
+    await navigator.clipboard.writeText(inviteUrl);
+    setMessage("邀请链接已复制，发给对手即可加入。");
   } catch {
-    setMessage(`房间码：${appState.room.code}`);
+    setMessage(`邀请链接：${inviteUrl}`);
   }
 }
 
 function renderApp() {
   const room = appState.room;
+  const savedSession = loadSession();
   elements.lobbySection.hidden = Boolean(room);
   elements.roomArea.hidden = !room;
+  elements.restoreSessionButton.hidden = Boolean(room) || !savedSession;
+  if (savedSession) {
+    elements.restoreSessionButton.textContent = `恢复 ${savedSession.playerId} 方身份（${savedSession.roomCode}）`;
+  }
   elements.lobbyMessage.textContent = appState.message;
   elements.roomMessage.textContent = appState.message;
 
@@ -694,6 +769,89 @@ function getOpponent() {
   return getPlayer(appState.playerId === "A" ? "B" : "A");
 }
 
+function saveSession(roomCode, playerId) {
+  const payload = JSON.stringify({
+    roomCode,
+    playerId,
+    savedAt: Date.now()
+  });
+
+  try {
+    localStorage.setItem(SESSION_STORAGE_KEY, payload);
+  } catch {
+    // localStorage may be unavailable in private or restricted browser contexts.
+  }
+
+  try {
+    sessionStorage.setItem(ACTIVE_SESSION_STORAGE_KEY, payload);
+  } catch {
+    // sessionStorage may be unavailable in private or restricted browser contexts.
+  }
+}
+
+function loadSession() {
+  return parseSessionStorage(localStorage, SESSION_STORAGE_KEY);
+}
+
+function loadActiveSession() {
+  return parseSessionStorage(sessionStorage, ACTIVE_SESSION_STORAGE_KEY);
+}
+
+function parseSessionStorage(storage, key) {
+  try {
+    const raw = storage.getItem(key);
+    if (!raw) {
+      return null;
+    }
+
+    const session = JSON.parse(raw);
+    const roomCode = normalizeRoomCode(session.roomCode);
+    const playerId = session.playerId;
+    if (!roomCode || !["A", "B"].includes(playerId)) {
+      return null;
+    }
+
+    return {
+      roomCode,
+      playerId
+    };
+  } catch {
+    return null;
+  }
+}
+
+function clearSession() {
+  try {
+    localStorage.removeItem(SESSION_STORAGE_KEY);
+  } catch {
+    // Ignore storage cleanup failures.
+  }
+}
+
+function clearActiveSession() {
+  try {
+    sessionStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY);
+  } catch {
+    // Ignore storage cleanup failures.
+  }
+}
+
+function normalizeRoomCode(value) {
+  return String(value || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+}
+
+function createInviteUrl(roomCode) {
+  const url = new URL(window.location.href);
+  url.searchParams.set("room", roomCode);
+  return url.toString();
+}
+
+function updateRoomUrl(roomCode) {
+  const url = new URL(window.location.href);
+  url.searchParams.set("room", roomCode);
+  window.history.replaceState({}, "", url);
+}
+
 function setMessage(message) {
   appState.message = message;
   elements.lobbyMessage.textContent = message;
@@ -711,10 +869,16 @@ async function postJson(url, body) {
   const data = await readJsonResponse(response);
 
   if (!response.ok) {
-    throw new Error(data.error || "请求失败");
+    throwHttpError(response, data);
   }
 
   return data;
+}
+
+function throwHttpError(response, data) {
+  const error = new Error(data.error || "请求失败");
+  error.status = response.status;
+  throw error;
 }
 
 async function fetchWithTimeout(url, options = {}) {
