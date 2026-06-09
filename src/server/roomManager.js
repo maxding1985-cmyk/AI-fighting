@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { BattleEngine } from "../shared/battleEngine.js";
 import { TICK_MS } from "../shared/constants.js";
 import { generateLocalStrategyRules } from "../shared/localStrategyGenerator.js";
@@ -20,6 +21,7 @@ export class RoomManager {
     this.battleOptions = options.battleOptions || {};
     this.codeLength = options.codeLength || 6;
     this.disconnectGraceMs = options.disconnectGraceMs ?? 5000;
+    this.tokenFactory = options.tokenFactory || createPlayerToken;
   }
 
   createRoom({ playerName = "玩家 A" } = {}) {
@@ -28,7 +30,7 @@ export class RoomManager {
       code,
       status: "waiting",
       players: {
-        A: createPlayer("A", playerName),
+        A: createPlayer("A", playerName, this.tokenFactory()),
         B: null
       },
       connections: { A: 0, B: 0 },
@@ -45,6 +47,7 @@ export class RoomManager {
     this.rooms.set(code, room);
     return {
       playerId: "A",
+      playerToken: room.players.A.token,
       room: this.getSnapshot(code)
     };
   }
@@ -55,13 +58,23 @@ export class RoomManager {
       throw new RoomError(409, "房间已满");
     }
 
-    room.players.B = createPlayer("B", playerName);
+    room.players.B = createPlayer("B", playerName, this.tokenFactory());
     room.status = "preparing";
     this.touch(room);
     this.emit(room, "room:update", this.toSnapshot(room));
 
     return {
       playerId: "B",
+      playerToken: room.players.B.token,
+      room: this.toSnapshot(room)
+    };
+  }
+
+  restorePlayer(code, playerId, token) {
+    const { room, player } = this.verifyPlayerToken(code, playerId, token);
+    return {
+      playerId: player.id,
+      playerToken: player.token,
       room: this.toSnapshot(room)
     };
   }
@@ -214,6 +227,16 @@ export class RoomManager {
     return room.players[playerId];
   }
 
+  verifyPlayerToken(code, playerId, token) {
+    const room = this.getRoom(code);
+    const player = this.getPlayer(room, playerId);
+    if (!isSameToken(player.token, token)) {
+      throw new RoomError(403, "玩家身份凭证无效，请重新加入房间");
+    }
+
+    return { room, player };
+  }
+
   startBattle(room) {
     this.stopTimer(room);
     const ruleSets = {
@@ -305,10 +328,11 @@ export class RoomManager {
   }
 }
 
-function createPlayer(id, name) {
+function createPlayer(id, name, token) {
   return {
     id,
     name: String(name || `玩家 ${id}`).trim().slice(0, 18) || `玩家 ${id}`,
+    token,
     connected: false,
     ready: false,
     ruleSet: null
@@ -317,4 +341,12 @@ function createPlayer(id, name) {
 
 function normalizeCode(code) {
   return String(code || "").trim().toUpperCase();
+}
+
+function createPlayerToken() {
+  return randomBytes(24).toString("base64url");
+}
+
+function isSameToken(expected, actual) {
+  return typeof actual === "string" && actual.length > 0 && expected === actual;
 }

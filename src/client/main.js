@@ -46,6 +46,7 @@ const ACTIVE_SESSION_STORAGE_KEY = "ai-tank-duel:active-session";
 const appState = {
   room: null,
   playerId: null,
+  playerToken: null,
   generatedRuleSet: null,
   eventSource: null,
   connectionState: "idle",
@@ -253,7 +254,7 @@ async function createRoom() {
     const response = await postJson("/api/rooms", {
       playerName: elements.playerNameInput.value || "玩家 A"
     });
-    enterRoom(response.room, response.playerId);
+    enterRoom(response.room, response.playerId, response.playerToken);
   } catch (error) {
     setMessage(error.message);
   }
@@ -270,7 +271,7 @@ async function joinRoom() {
     const response = await postJson(`/api/rooms/${encodeURIComponent(code)}/join`, {
       playerName: elements.playerNameInput.value || "玩家 B"
     });
-    enterRoom(response.room, response.playerId);
+    enterRoom(response.room, response.playerId, response.playerToken);
   } catch (error) {
     setMessage(error.message);
   }
@@ -286,20 +287,14 @@ async function restoreSavedSession({ session = loadSession(), auto = false } = {
   }
 
   try {
-    const response = await getJson(`/api/rooms/${encodeURIComponent(session.roomCode)}`);
-    const player = response.room.players.find((item) => item.id === session.playerId);
-    if (!player) {
-      clearSession();
-      clearActiveSession();
-      elements.restoreSessionButton.hidden = true;
-      setMessage("上次身份已失效，请重新创建或加入房间。");
-      return;
-    }
-
-    enterRoom(response.room, session.playerId);
+    const response = await postJson(`/api/rooms/${encodeURIComponent(session.roomCode)}/restore`, {
+      playerId: session.playerId,
+      playerToken: session.playerToken
+    });
+    enterRoom(response.room, response.playerId, response.playerToken);
     setMessage(`${auto ? "刷新后已自动恢复" : "已恢复"} ${session.playerId} 方身份，回到房间 ${session.roomCode}。`);
   } catch (error) {
-    if (error.status === 404) {
+    if ([403, 404].includes(error.status)) {
       clearSession();
       clearActiveSession();
       elements.restoreSessionButton.hidden = true;
@@ -311,26 +306,31 @@ async function restoreSavedSession({ session = loadSession(), auto = false } = {
   }
 }
 
-function enterRoom(room, playerId) {
+function enterRoom(room, playerId, playerToken) {
   appState.room = room;
   appState.playerId = playerId;
+  appState.playerToken = playerToken;
   appState.generatedRuleSet = null;
   appState.gameState = room.gameState;
   elements.strategyPrompt.value = DEFAULT_PROMPTS[playerId] || DEFAULT_PROMPTS.A;
-  saveSession(room.code, playerId);
+  saveSession(room.code, playerId, playerToken);
   updateRoomUrl(room.code);
-  connectEvents(room.code, playerId);
+  connectEvents(room.code, playerId, playerToken);
   setMessage(`你已作为 ${playerId} 方进入房间 ${room.code}`);
   renderApp();
 }
 
-function connectEvents(code, playerId) {
+function connectEvents(code, playerId, playerToken) {
   if (appState.eventSource) {
     appState.eventSource.close();
   }
 
   appState.connectionState = "connecting";
-  const source = new EventSource(`/api/rooms/${encodeURIComponent(code)}/events?playerId=${encodeURIComponent(playerId)}`);
+  const params = new URLSearchParams({
+    playerId,
+    playerToken
+  });
+  const source = new EventSource(`/api/rooms/${encodeURIComponent(code)}/events?${params.toString()}`);
   appState.eventSource = source;
 
   source.addEventListener("open", async () => {
@@ -445,6 +445,7 @@ async function confirmRules() {
 
     const response = await postJson(`/api/rooms/${appState.room.code}/strategy/confirm`, {
       playerId: appState.playerId,
+      playerToken: appState.playerToken,
       ruleSet: validation.ruleSet
     });
     appState.room = response.room;
@@ -462,7 +463,10 @@ async function restartRoom() {
   }
 
   try {
-    const response = await postJson(`/api/rooms/${appState.room.code}/restart`, {});
+    const response = await postJson(`/api/rooms/${appState.room.code}/restart`, {
+      playerId: appState.playerId,
+      playerToken: appState.playerToken
+    });
     appState.room = response.room;
     appState.gameState = null;
     appState.generatedRuleSet = null;
@@ -769,10 +773,11 @@ function getOpponent() {
   return getPlayer(appState.playerId === "A" ? "B" : "A");
 }
 
-function saveSession(roomCode, playerId) {
+function saveSession(roomCode, playerId, playerToken) {
   const payload = JSON.stringify({
     roomCode,
     playerId,
+    playerToken,
     savedAt: Date.now()
   });
 
@@ -807,13 +812,15 @@ function parseSessionStorage(storage, key) {
     const session = JSON.parse(raw);
     const roomCode = normalizeRoomCode(session.roomCode);
     const playerId = session.playerId;
-    if (!roomCode || !["A", "B"].includes(playerId)) {
+    const playerToken = typeof session.playerToken === "string" ? session.playerToken : "";
+    if (!roomCode || !["A", "B"].includes(playerId) || !playerToken) {
       return null;
     }
 
     return {
       roomCode,
-      playerId
+      playerId,
+      playerToken
     };
   } catch {
     return null;

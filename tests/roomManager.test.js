@@ -3,16 +3,23 @@ import assert from "node:assert/strict";
 import { RoomError, RoomManager } from "../src/server/roomManager.js";
 
 test("room manager creates and joins a two-player room", () => {
-  const manager = new RoomManager({ autoTick: false });
+  let tokenIndex = 0;
+  const manager = new RoomManager({
+    autoTick: false,
+    tokenFactory: () => `token-${tokenIndex += 1}`
+  });
   const created = manager.createRoom({ playerName: "Alpha" });
   const joined = manager.joinRoom(created.room.code, { playerName: "Bravo" });
 
   assert.equal(created.playerId, "A");
+  assert.equal(created.playerToken, "token-1");
   assert.equal(joined.playerId, "B");
+  assert.equal(joined.playerToken, "token-2");
   assert.equal(joined.room.status, "preparing");
   assert.equal(joined.room.players.length, 2);
   assert.equal(joined.room.players[0].name, "Alpha");
   assert.equal(joined.room.players[1].name, "Bravo");
+  assert.equal("token" in joined.room.players[0], false);
 });
 
 test("room manager rejects a third player", () => {
@@ -23,6 +30,27 @@ test("room manager rejects a third player", () => {
   assert.throws(
     () => manager.joinRoom(created.room.code, { playerName: "Charlie" }),
     (error) => error instanceof RoomError && error.statusCode === 409
+  );
+});
+
+test("room manager restores players only with a valid credential", () => {
+  let tokenIndex = 0;
+  const manager = new RoomManager({
+    autoTick: false,
+    tokenFactory: () => `token-${tokenIndex += 1}`
+  });
+  const created = manager.createRoom({ playerName: "Alpha" });
+  const code = created.room.code;
+  manager.joinRoom(code, { playerName: "Bravo" });
+
+  const restored = manager.restorePlayer(code, "A", created.playerToken);
+
+  assert.equal(restored.playerId, "A");
+  assert.equal(restored.playerToken, "token-1");
+  assert.equal(restored.room.code, code);
+  assert.throws(
+    () => manager.restorePlayer(code, "A", "wrong-token"),
+    (error) => error instanceof RoomError && error.statusCode === 403
   );
 });
 

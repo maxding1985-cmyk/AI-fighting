@@ -69,13 +69,19 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  if (method === "POST" && parts.length === 4 && parts[0] === "api" && parts[1] === "rooms" && parts[3] === "restore") {
+    const body = await readJson(req);
+    sendJson(res, manager.restorePlayer(parts[2], body.playerId, body.playerToken));
+    return;
+  }
+
   if (method === "GET" && parts.length === 3 && parts[0] === "api" && parts[1] === "rooms") {
     sendJson(res, { room: manager.getSnapshot(parts[2]) });
     return;
   }
 
   if (method === "GET" && parts.length === 4 && parts[0] === "api" && parts[1] === "rooms" && parts[3] === "events") {
-    handleEvents(req, res, parts[2], url.searchParams.get("playerId"));
+    handleEvents(req, res, parts[2], url.searchParams.get("playerId"), url.searchParams.get("playerToken"));
     return;
   }
 
@@ -87,11 +93,14 @@ async function handleApi(req, res, url) {
 
   if (method === "POST" && parts.length === 5 && parts[0] === "api" && parts[1] === "rooms" && parts[3] === "strategy" && parts[4] === "confirm") {
     const body = await readJson(req);
+    manager.verifyPlayerToken(parts[2], body.playerId, body.playerToken);
     sendJson(res, { room: manager.confirmStrategy(parts[2], body.playerId, body.ruleSet) });
     return;
   }
 
   if (method === "POST" && parts.length === 4 && parts[0] === "api" && parts[1] === "rooms" && parts[3] === "restart") {
+    const body = await readJson(req);
+    manager.verifyPlayerToken(parts[2], body.playerId, body.playerToken);
     sendJson(res, { room: manager.restartRoom(parts[2]) });
     return;
   }
@@ -99,9 +108,8 @@ async function handleApi(req, res, url) {
   throw new RoomError(404, "接口不存在");
 }
 
-function handleEvents(req, res, code, playerId) {
-  const room = manager.getRoom(code);
-  manager.getPlayer(room, playerId);
+function handleEvents(req, res, code, playerId, playerToken) {
+  manager.verifyPlayerToken(code, playerId, playerToken);
 
   req.socket.setTimeout(0);
   req.socket.setNoDelay(true);
