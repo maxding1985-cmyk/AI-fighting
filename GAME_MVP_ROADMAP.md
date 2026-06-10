@@ -161,6 +161,7 @@ _Last updated: 2026-06-10_
 |---|---|---|---|
 | 2026-06-10 | Created living MVP roadmap and aligned it with current repository state | Establishes single source of truth for game MVP planning | Added MVP 0-3 structure and current MVP 1 status |
 | 2026-06-10 | Explicit AI generation modes, decision logs, exit flow, README updates, and tests were completed | Makes LAN playable loop clearer and easier to debug | Marked several MVP 1 features Done; kept E2E tests and cleanup as next actions |
+| 2026-06-10 | Backfilled timestamped commit notes for existing repository history | Improves traceability of completed MVP work and future submissions | Added `commit-notes/` as the per-commit documentation trail |
 
 ## 10. Decision Log
 
@@ -169,6 +170,7 @@ _Last updated: 2026-06-10_
 | 2026-06-10 | Keep current milestone as MVP 1 - LAN Playable Duel | The core combat prototype is already done; current risk is complete two-player usability | Focus next work on E2E coverage, onboarding, and LAN play stability |
 | 2026-06-10 | Separate AI generation into explicit modes | Users need to know whether rules came from local templates, their own AI, or server AI | Reduces confusion and prevents silent AI fallback |
 | 2026-06-10 | Update roadmap during commit workflow for game projects | Planning should evolve with actual committed progress | Added `commit-code` skill workflow requirement to update `GAME_MVP_ROADMAP.md` |
+| 2026-06-10 | Create timestamped commit notes for every commit | Each submission should leave a durable change record beyond the git message | Added `commit-note` workflow and backfilled historical notes |
 
 ## 11. Open Questions
 
