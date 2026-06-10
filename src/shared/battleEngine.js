@@ -141,6 +141,12 @@ export class BattleEngine {
         rule: plan.rule
       };
     });
+    actionPlans.forEach((plan) => {
+      const tank = this.findTank(plan.tankId);
+      if (tank) {
+        this.addDecisionLog(tank, plan);
+      }
+    });
 
     this.applyTurns(actionPlans);
     this.applyMovement(actionPlans);
@@ -362,7 +368,42 @@ export class BattleEngine {
     });
     this.state.logs = this.state.logs.slice(0, 40);
   }
+
+  addDecisionLog(tank, plan) {
+    const ruleText = plan.rule
+      ? `P${plan.rule.priority} ${formatConditions(plan.rule.when)}`
+      : "无可执行规则";
+    const skippedText = plan.debug?.skipped?.length
+      ? `；已跳过 ${formatSkippedRule(plan.debug.skipped[0])}`
+      : "";
+    this.addLog(`${tank.name} 决策：${ruleText} -> ${formatAction(plan.action)}${skippedText}`);
+  }
 }
+
+const ACTION_DEBUG_LABELS = Object.freeze({
+  move_forward: "前进",
+  move_backward: "后退",
+  turn_left: "左转",
+  turn_right: "右转",
+  shoot: "射击",
+  wait: "等待"
+});
+
+const CONDITION_DEBUG_LABELS = Object.freeze({
+  always: "始终",
+  enemy_in_line: "敌人在炮线",
+  enemy_near: "敌人较近",
+  enemy_on_left: "敌人在左侧",
+  enemy_on_right: "敌人在右侧",
+  enemy_behind: "敌人在身后",
+  wall_ahead: "前方受阻",
+  wall_behind: "后方受阻",
+  can_shoot: "可以射击",
+  bullet_in_front: "正前方有子弹",
+  bullet_near: "附近有子弹",
+  path_forward_clear: "前方可走",
+  random_30: "30%随机"
+});
 
 function normalizeRuleSets(ruleSets = {}) {
   const fallback = {
@@ -385,19 +426,56 @@ function normalizeRuleSets(ruleSets = {}) {
 function selectAction(state, tankId, ruleSet, rng) {
   const tank = state.tanks.find((item) => item.id === tankId);
   if (!tank || !tank.alive) {
-    return { action: "wait", rule: null };
+    return { action: "wait", rule: null, debug: { skipped: [] } };
   }
 
+  const skipped = [];
   for (const rule of ruleSet.rules) {
-    const matched = rule.when.every((condition) =>
-      evaluateCondition(condition, state, tank, rng)
-    );
-    if (matched) {
-      return { action: rule.action, rule };
+    const checks = rule.when.map((condition) => ({
+      condition,
+      passed: evaluateCondition(condition, state, tank, rng)
+    }));
+    const matched = checks.every((check) => check.passed);
+    if (!matched) {
+      continue;
     }
+
+    const executable = getActionExecution(rule.action, state, tank);
+    if (executable.ok) {
+      return { action: rule.action, rule, debug: { checks, skipped } };
+    }
+
+    skipped.push({ rule, reason: executable.reason });
   }
 
-  return { action: "wait", rule: null };
+  return { action: "wait", rule: null, debug: { skipped } };
+}
+
+function getActionExecution(action, state, tank) {
+  if (action === "shoot") {
+    if (tank.shootCooldown > 0) {
+      return { ok: false, reason: `射击冷却 ${tank.shootCooldown} tick` };
+    }
+    if (state.bullets.some((bullet) => bullet.ownerTankId === tank.id)) {
+      return { ok: false, reason: "已有己方炮弹在场" };
+    }
+    return { ok: true };
+  }
+
+  if (action === "move_forward" || action === "move_backward") {
+    const direction = action === "move_forward"
+      ? tank.direction
+      : oppositeDirection(tank.direction);
+    const to = addVector(tank, direction);
+    if (!isBlockedForState(state, to, tank.id)) {
+      return { ok: true };
+    }
+
+    const label = action === "move_forward" ? "前方" : "后方";
+    return { ok: false, reason: describeBlockedCell(state, to, tank.id, label) };
+  }
+
+  return { ok: true };
 }
 
 function evaluateCondition(condition, state, tank, rng) {
@@ -421,8 +499,7 @@ function evaluateCondition(condition, state, tank, rng) {
     case "wall_behind":
       return isBlockedForState(state, addVector(tank, oppositeDirection(tank.direction)));
     case "can_shoot":
-      return tank.shootCooldown <= 0 &&
-        !state.bullets.some((bullet) => bullet.ownerTankId === tank.id);
+      return canShootInState(state, tank);
     case "bullet_in_front":
       return hasBulletInFront(state, tank);
     case "bullet_near":
@@ -436,6 +513,11 @@ function evaluateCondition(condition, state, tank, rng) {
     default:
       return false;
   }
+}
+
+function canShootInState(state, tank) {
+  return tank.shootCooldown <= 0 &&
+    !state.bullets.some((bullet) => bullet.ownerTankId === tank.id);
 }
 
 function isEnemyInLine(state, tank, enemy) {
@@ -531,4 +613,45 @@ function isBlockedForState(state, position, movingTankId = null) {
     other.x === position.x &&
     other.y === position.y
   );
+}
+
+function describeBlockedCell(state, position, movingTankId, label) {
+  if (
+    position.x < 0 ||
+    position.y < 0 ||
+    position.x >= state.map.width ||
+    position.y >= state.map.height
+  ) {
+    return `${label}越界`;
+  }
+
+  if (state.map.walls.some((wall) => wall.x === position.x && wall.y === position.y)) {
+    return `${label}有墙`;
+  }
+
+  const tank = state.tanks.find((other) =>
+    other.alive &&
+    other.id !== movingTankId &&
+    other.x === position.x &&
+    other.y === position.y
+  );
+  if (tank) {
+    return `${label}被${tank.name}占据`;
+  }
+
+  return `${label}受阻`;
+}
+
+function formatConditions(conditions) {
+  return conditions
+    .map((condition) => CONDITION_DEBUG_LABELS[condition] || condition)
+    .join("+");
+}
+
+function formatAction(action) {
+  return ACTION_DEBUG_LABELS[action] || action;
+}
+
+function formatSkippedRule(item) {
+  return `P${item.rule.priority} ${formatAction(item.rule.action)}（${item.reason}）`;
 }

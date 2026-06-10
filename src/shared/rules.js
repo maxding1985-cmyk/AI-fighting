@@ -47,9 +47,24 @@ export const builtInRuleSets = Object.freeze({
       { priority: 100, when: ["enemy_in_line", "can_shoot"], action: "shoot" },
       { priority: 80, when: ["bullet_in_front"], action: "turn_right" },
       { priority: 65, when: ["wall_ahead"], action: "turn_left" },
-      { priority: 45, when: ["random_30"], action: "turn_right" },
-      { priority: 20, when: ["path_forward_clear"], action: "move_forward" },
+      { priority: 45, when: ["random_30", "path_forward_clear"], action: "move_forward" },
+      { priority: 20, when: ["random_30"], action: "turn_right" },
+      { priority: 15, when: ["path_forward_clear"], action: "move_forward" },
       { priority: 10, when: ["always"], action: "wait" }
+    ]
+  },
+  randomShooter: {
+    name: "随机游走火力型",
+    description: "随机游走，遇到子弹先躲避，并在冷却结束后持续开火。",
+    rules: [
+      { priority: 100, when: ["bullet_in_front"], action: "move_backward" },
+      { priority: 92, when: ["bullet_near", "path_forward_clear"], action: "move_forward" },
+      { priority: 86, when: ["can_shoot"], action: "shoot" },
+      { priority: 70, when: ["wall_ahead"], action: "turn_right" },
+      { priority: 54, when: ["random_30", "path_forward_clear"], action: "move_forward" },
+      { priority: 36, when: ["random_30"], action: "turn_left" },
+      { priority: 24, when: ["path_forward_clear"], action: "move_forward" },
+      { priority: 12, when: ["always"], action: "turn_right" }
     ]
   }
 });

@@ -37,17 +37,29 @@ const STATUS_LABELS = {
   waiting: "等待第二名玩家",
   preparing: "策略准备中",
   fighting: "战斗中",
-  finished: "已结束"
+  finished: "已结束",
+  closed: "已退出"
 };
 const REQUEST_TIMEOUT_MS = 10000;
 const SESSION_STORAGE_KEY = "ai-tank-duel:last-session";
 const ACTIVE_SESSION_STORAGE_KEY = "ai-tank-duel:active-session";
+const AI_CONFIG_STORAGE_KEY = "ai-tank-duel:ai-config";
+const AI_KEY_SESSION_STORAGE_KEY = "ai-tank-duel:ai-key";
+const GENERATION_MODE_STORAGE_KEY = "ai-tank-duel:generation-mode";
+const DEFAULT_AI_BASE_URL = "https://api.openai.com/v1";
+const DEFAULT_AI_MODEL = "gpt-4.1-mini";
+const GENERATION_MODE_LABELS = {
+  local: "本地生成器",
+  "player-ai": "我的 AI",
+  "server-ai": "服务端 AI"
+};
 
 const appState = {
   room: null,
   playerId: null,
   playerToken: null,
   generatedRuleSet: null,
+  generationResult: null,
   eventSource: null,
   connectionState: "idle",
   gameState: null,
@@ -99,7 +111,11 @@ app.innerHTML = `
           <p id="currentPlayerText">当前身份：-</p>
           <div class="status-chip wide" id="statusChip">等待中</div>
           <div class="players-list" id="playersList"></div>
-          <button id="copyRoomButton">复制邀请链接</button>
+          <div class="room-controls">
+            <button id="copyRoomButton">复制邀请链接</button>
+            <button class="danger" id="exitRoomButton">退出游戏</button>
+          </div>
+          <div class="exit-notice" id="exitNotice" hidden></div>
           <p class="message" id="roomMessage"></p>
         </article>
 
@@ -108,13 +124,49 @@ app.innerHTML = `
             <span class="player-mark" id="playerMark">?</span>
             <div>
               <h2 id="strategyTitle">我的策略</h2>
-              <p>本阶段使用本地策略生成器，后续可替换为真实 AI 接口。</p>
+              <p>先选择生成方式，再把自然语言战术编译成可执行规则。</p>
             </div>
           </div>
           <label>
             赛前策略描述
             <textarea id="strategyPrompt" rows="5"></textarea>
           </label>
+          <div class="generation-modes" id="generationModeGroup">
+            <strong>生成方式</strong>
+            <label>
+              <input type="radio" name="generationMode" value="local" />
+              <span>本地生成器</span>
+              <small>不需要 Key，速度快，但理解能力有限。</small>
+            </label>
+            <label>
+              <input type="radio" name="generationMode" value="player-ai" />
+              <span>我的 AI</span>
+              <small>使用你填写的 OpenAI-compatible 配置生成。</small>
+            </label>
+            <label>
+              <input type="radio" name="generationMode" value="server-ai" />
+              <span>服务端 AI</span>
+              <small>使用服务器环境变量里的默认 AI 配置。</small>
+            </label>
+          </div>
+          <div class="ai-settings" id="aiSettings">
+            <div>
+              <strong>我的 AI 接口</strong>
+              <small>仅在选择“我的 AI”时使用；Key 只保存在当前浏览器会话，生成时发送给房间服务端代调。</small>
+            </div>
+            <label>
+              Base URL
+              <input id="aiBaseUrlInput" placeholder="https://api.openai.com/v1" />
+            </label>
+            <label>
+              Model
+              <input id="aiModelInput" placeholder="gpt-4.1-mini" />
+            </label>
+            <label>
+              API Key
+              <input id="aiApiKeyInput" type="password" autocomplete="off" placeholder="留空则使用服务端默认或本地生成器" />
+            </label>
+          </div>
           <button class="primary stretch" id="generateButton">生成规则</button>
           <button class="stretch" id="confirmButton">确认规则并准备</button>
           <div class="presets" id="presetButtons"></div>
@@ -177,14 +229,23 @@ const elements = {
   statusChip: document.querySelector("#statusChip"),
   playersList: document.querySelector("#playersList"),
   copyRoomButton: document.querySelector("#copyRoomButton"),
+  exitRoomButton: document.querySelector("#exitRoomButton"),
+  exitNotice: document.querySelector("#exitNotice"),
   roomMessage: document.querySelector("#roomMessage"),
   strategyCard: document.querySelector("#strategyCard"),
   playerMark: document.querySelector("#playerMark"),
   strategyTitle: document.querySelector("#strategyTitle"),
   strategyPrompt: document.querySelector("#strategyPrompt"),
+  generationModeGroup: document.querySelector("#generationModeGroup"),
+  generationModeInputs: [...document.querySelectorAll("input[name='generationMode']")],
+  aiSettings: document.querySelector("#aiSettings"),
+  aiBaseUrlInput: document.querySelector("#aiBaseUrlInput"),
+  aiModelInput: document.querySelector("#aiModelInput"),
+  aiApiKeyInput: document.querySelector("#aiApiKeyInput"),
   generateButton: document.querySelector("#generateButton"),
   confirmButton: document.querySelector("#confirmButton"),
   presetButtons: document.querySelector("#presetButtons"),
+  rulePreview: document.querySelector("#rulePreview"),
   canvas: document.querySelector("#battleCanvas"),
   tickValue: document.querySelector("#tickValue"),
   tankAName: document.querySelector("#tankAName"),
@@ -205,6 +266,7 @@ elements.presetButtons.innerHTML = Object.keys(builtInRuleSets)
 elements.createRoomButton.addEventListener("click", createRoom);
 elements.joinRoomButton.addEventListener("click", joinRoom);
 elements.copyRoomButton.addEventListener("click", copyRoomCode);
+elements.exitRoomButton.addEventListener("click", handleExitRoom);
 elements.restoreSessionButton.addEventListener("click", () => restoreSavedSession());
 elements.generateButton.addEventListener("click", generateRules);
 elements.confirmButton.addEventListener("click", confirmRules);
@@ -212,14 +274,30 @@ elements.restartButton.addEventListener("click", restartRoom);
 elements.roomCodeInput.addEventListener("input", () => {
   elements.roomCodeInput.value = elements.roomCodeInput.value.toUpperCase();
 });
+[elements.aiBaseUrlInput, elements.aiModelInput, elements.aiApiKeyInput].forEach((input) => {
+  input.addEventListener("input", saveAiSettings);
+});
+elements.generationModeInputs.forEach((input) => {
+  input.addEventListener("change", () => {
+    saveGenerationMode(input.value);
+    appState.generationResult = null;
+    renderApp();
+  });
+});
 elements.presetButtons.querySelectorAll("[data-preset]").forEach((button) => {
   button.addEventListener("click", () => {
     appState.generatedRuleSet = cloneRuleSet(builtInRuleSets[button.dataset.preset]);
+    appState.generationResult = {
+      ruleSet: appState.generatedRuleSet,
+      source: "preset"
+    };
     setMessage(`已选择预设：${appState.generatedRuleSet.name}`);
     renderApp();
   });
 });
 
+initializeAiSettings();
+initializeGenerationMode();
 initializeFromLocation();
 renderApp();
 
@@ -311,6 +389,7 @@ function enterRoom(room, playerId, playerToken) {
   appState.playerId = playerId;
   appState.playerToken = playerToken;
   appState.generatedRuleSet = null;
+  appState.generationResult = null;
   appState.gameState = room.gameState;
   elements.strategyPrompt.value = DEFAULT_PROMPTS[playerId] || DEFAULT_PROMPTS.A;
   saveSession(room.code, playerId, playerToken);
@@ -351,6 +430,11 @@ function connectEvents(code, playerId, playerToken) {
 
   source.addEventListener("battle:state", (event) => {
     applyBattlePayload(JSON.parse(event.data));
+  });
+
+  source.addEventListener("room:closed", (event) => {
+    const payload = JSON.parse(event.data);
+    leaveRoomLocally(payload.result?.message || "游戏已退出。");
   });
 
   source.addEventListener("error", async () => {
@@ -413,11 +497,23 @@ async function generateRules() {
   }
 
   try {
+    const generationMode = getGenerationMode();
+    if (generationMode === "player-ai" && !elements.aiApiKeyInput.value.trim()) {
+      setMessage("请选择“本地生成器”，或填写 API Key 后再使用“我的 AI”。");
+      return;
+    }
+
     const response = await postJson(`/api/rooms/${appState.room.code}/strategy/generate`, {
-      prompt: elements.strategyPrompt.value
+      prompt: elements.strategyPrompt.value,
+      generationMode,
+      aiConfig: generationMode === "player-ai" ? getPlayerAiConfig() : null
     });
     appState.generatedRuleSet = response.ruleSet;
-    setMessage(`规则已生成：${response.ruleSet.name}`);
+    appState.generationResult = {
+      ...response,
+      mode: generationMode
+    };
+    setMessage(formatGenerationMessage(appState.generationResult));
     renderApp();
   } catch (error) {
     setMessage(error.message);
@@ -450,6 +546,10 @@ async function confirmRules() {
     });
     appState.room = response.room;
     appState.generatedRuleSet = validation.ruleSet;
+    appState.generationResult = {
+      ...(appState.generationResult || {}),
+      ruleSet: validation.ruleSet
+    };
     setMessage("规则已确认，等待对手准备。");
     renderApp();
   } catch (error) {
@@ -470,8 +570,48 @@ async function restartRoom() {
     appState.room = response.room;
     appState.gameState = null;
     appState.generatedRuleSet = null;
+    appState.generationResult = null;
     elements.strategyPrompt.value = DEFAULT_PROMPTS[appState.playerId] || DEFAULT_PROMPTS.A;
     setMessage("新一局已重置，请重新生成并确认规则。");
+    renderApp();
+  } catch (error) {
+    setMessage(error.message);
+  }
+}
+
+async function handleExitRoom() {
+  if (!appState.room) {
+    return;
+  }
+
+  const room = appState.room;
+  if (room.status === "closed") {
+    leaveRoomLocally(room.result?.message || "游戏已退出。");
+    return;
+  }
+
+  const hasOpponentRequest = room.exitRequest && room.exitRequest.requesterId !== appState.playerId;
+  const endpoint = hasOpponentRequest ? "confirm" : "request";
+
+  if (room.exitRequest?.requesterId === appState.playerId) {
+    setMessage("已发送退出请求，等待对手确认。");
+    return;
+  }
+
+  try {
+    const response = await postJson(`/api/rooms/${room.code}/exit/${endpoint}`, {
+      playerId: appState.playerId,
+      playerToken: appState.playerToken
+    });
+    appState.room = response.room;
+    appState.gameState = response.room.gameState;
+
+    if (response.room.status === "closed") {
+      leaveRoomLocally(response.room.result?.message || "游戏已退出。");
+      return;
+    }
+
+    setMessage("已发送退出请求，等待对手确认后退出。");
     renderApp();
   } catch (error) {
     setMessage(error.message);
@@ -511,7 +651,12 @@ function renderApp() {
   const currentPlayer = getPlayer(appState.playerId);
   const opponent = getOpponent();
   const roomStatus = room.status;
-  const isLocked = currentPlayer?.ready || roomStatus === "fighting" || roomStatus === "finished";
+  const exitRequest = room.exitRequest;
+  const isLocked = currentPlayer?.ready ||
+    roomStatus === "fighting" ||
+    roomStatus === "finished" ||
+    roomStatus === "closed" ||
+    Boolean(exitRequest);
 
   elements.roomCodeText.textContent = room.code;
   elements.currentPlayerText.textContent = `当前身份：${appState.playerId} 方 · ${currentPlayer?.name || "-"}`;
@@ -523,6 +668,8 @@ function renderApp() {
   elements.generateButton.disabled = Boolean(isLocked);
   elements.confirmButton.disabled = Boolean(isLocked);
   elements.restartButton.disabled = roomStatus !== "finished";
+  renderGenerationControls(isLocked);
+  renderExitControls();
 
   renderPlayers();
   renderRulePanels(currentPlayer, opponent);
@@ -550,16 +697,50 @@ function renderPlayers() {
       <div class="player-row" style="--player-color: ${PLAYER_COLORS[player.id]}">
         <span>${escapeHtml(player.id)}</span>
         <strong>${escapeHtml(player.name)}</strong>
-        <em>${player.ready ? "已确认" : "编辑中"} · ${player.connected ? "在线" : "离线"}</em>
+        <em>${escapeHtml(getPlayerStatusText(player))}</em>
       </div>
     `;
   }).join("");
 }
 
+function renderExitControls() {
+  const room = appState.room;
+  if (!room) {
+    return;
+  }
+
+  const request = room.exitRequest;
+  const requester = request ? getPlayer(request.requesterId) : null;
+
+  elements.exitNotice.hidden = !request || room.status === "closed";
+  elements.exitNotice.textContent = request && room.status !== "closed"
+    ? `${requester?.name || request.requesterId} 请求退出，需要另一名玩家确认。`
+    : "";
+
+  elements.exitRoomButton.disabled = false;
+  elements.exitRoomButton.textContent = "退出游戏";
+
+  if (room.status === "closed") {
+    elements.exitRoomButton.textContent = "返回大厅";
+    return;
+  }
+
+  if (request?.requesterId === appState.playerId) {
+    elements.exitRoomButton.textContent = "等待对手确认退出";
+    elements.exitRoomButton.disabled = true;
+    return;
+  }
+
+  if (request) {
+    elements.exitRoomButton.textContent = "确认退出";
+  }
+}
+
 function renderRulePanels(currentPlayer, opponent) {
   const currentRuleSet = currentPlayer?.ruleSet || appState.generatedRuleSet;
+  const currentMeta = currentRuleSet ? appState.generationResult : null;
   elements.rulePreview.innerHTML = currentRuleSet
-    ? renderRuleSet(currentRuleSet)
+    ? renderRuleSet(currentRuleSet, currentMeta)
     : `<p>输入战术后点击“生成规则”，或者直接选择一个预设策略。</p>`;
 
   elements.opponentRules.innerHTML = opponent?.ruleSet
@@ -567,10 +748,14 @@ function renderRulePanels(currentPlayer, opponent) {
     : `<p>${opponent ? "对手还没有确认规则。" : "等待第二名玩家加入。"}</p>`;
 }
 
-function renderRuleSet(ruleSet) {
+function renderRuleSet(ruleSet, meta = null) {
   return `
     <h3>${escapeHtml(ruleSet.name)}</h3>
     <p>${escapeHtml(ruleSet.description || "暂无说明")}</p>
+    <div class="rule-meta">
+      ${meta ? `<span>来源：${escapeHtml(formatGenerationSource(meta))}</span>` : ""}
+      <span>${escapeHtml(formatRuleCapabilities(ruleSet))}</span>
+    </div>
     <ul>
       ${ruleSet.rules.map((rule) => `
         <li>
@@ -611,7 +796,7 @@ function renderResult() {
 
   elements.resultPanel.hidden = false;
   elements.resultPanel.innerHTML = `
-    <strong>${escapeHtml(result.type === "draw" ? "平局" : `${result.winnerPlayerId} 方胜利`)}</strong>
+    <strong>${escapeHtml(getResultTitle(result))}</strong>
     <p>${escapeHtml(result.message)}</p>
     <small>结束原因：${escapeHtml(result.reason)} · 用时 ${result.tick} tick</small>
   `;
@@ -762,7 +947,31 @@ function getWaitingLog() {
   if (appState.room.status === "preparing") {
     return "等待双方确认规则。";
   }
+  if (appState.room.exitRequest) {
+    return "等待退出确认。";
+  }
+  if (appState.room.status === "closed") {
+    return "游戏已退出。";
+  }
   return "等待第一发炮弹。";
+}
+
+function getPlayerStatusText(player) {
+  const request = appState.room?.exitRequest;
+  const exitText = request?.requesterId === player.id ? "请求退出" : "";
+  const readyText = player.ready ? "已确认" : "编辑中";
+  const connectionText = player.connected ? "在线" : "离线";
+  return [exitText, readyText, connectionText].filter(Boolean).join(" · ");
+}
+
+function getResultTitle(result) {
+  if (result.type === "draw") {
+    return "平局";
+  }
+  if (result.type === "exit") {
+    return "游戏已退出";
+  }
+  return `${result.winnerPlayerId} 方胜利`;
 }
 
 function getPlayer(playerId) {
@@ -771,6 +980,163 @@ function getPlayer(playerId) {
 
 function getOpponent() {
   return getPlayer(appState.playerId === "A" ? "B" : "A");
+}
+
+function initializeGenerationMode() {
+  const mode = loadGenerationMode();
+  elements.generationModeInputs.forEach((input) => {
+    input.checked = input.value === mode;
+  });
+}
+
+function renderGenerationControls(isLocked) {
+  const mode = getGenerationMode();
+  elements.generationModeInputs.forEach((input) => {
+    input.disabled = Boolean(isLocked);
+  });
+
+  const usesPlayerAi = mode === "player-ai";
+  [elements.aiBaseUrlInput, elements.aiModelInput, elements.aiApiKeyInput].forEach((input) => {
+    input.disabled = Boolean(isLocked || !usesPlayerAi);
+  });
+  elements.aiSettings.classList.toggle("inactive", !usesPlayerAi);
+  elements.generateButton.textContent = getGenerateButtonText(mode);
+}
+
+function getGenerationMode() {
+  const selected = elements.generationModeInputs.find((input) => input.checked);
+  return selected?.value || "local";
+}
+
+function saveGenerationMode(mode) {
+  const normalizedMode = GENERATION_MODE_LABELS[mode] ? mode : "local";
+  try {
+    localStorage.setItem(GENERATION_MODE_STORAGE_KEY, normalizedMode);
+  } catch {
+    // Ignore storage failures in restricted browser contexts.
+  }
+}
+
+function loadGenerationMode() {
+  try {
+    const mode = localStorage.getItem(GENERATION_MODE_STORAGE_KEY);
+    return GENERATION_MODE_LABELS[mode] ? mode : "local";
+  } catch {
+    return "local";
+  }
+}
+
+function getGenerateButtonText(mode) {
+  if (mode === "player-ai") {
+    return "调用我的 AI 生成";
+  }
+  if (mode === "server-ai") {
+    return "调用服务端 AI 生成";
+  }
+  return "本地生成规则";
+}
+
+function formatGenerationMessage(result) {
+  const source = formatGenerationSource(result);
+  const reason = result.fallbackReason ? `。${result.fallbackReason}` : "";
+  return `${source} 已生成：${result.ruleSet.name}${reason}`;
+}
+
+function formatGenerationSource(result = {}) {
+  if (result.source === "preset") {
+    return "预设策略";
+  }
+  if (result.source === "ai") {
+    const label = GENERATION_MODE_LABELS[result.mode] || "AI";
+    return `${label}${result.model ? ` / ${result.model}` : ""}`;
+  }
+  return GENERATION_MODE_LABELS.local;
+}
+
+function formatRuleCapabilities(ruleSet) {
+  const actions = new Set(ruleSet.rules.map((rule) => rule.action));
+  const conditions = new Set(ruleSet.rules.flatMap((rule) => rule.when));
+  const capabilities = [];
+  if (actions.has("move_forward") || actions.has("move_backward")) {
+    capabilities.push("会移动");
+  }
+  if (actions.has("shoot")) {
+    capabilities.push("会射击");
+  }
+  if (conditions.has("bullet_in_front") || conditions.has("bullet_near")) {
+    capabilities.push("会躲子弹");
+  }
+  if (actions.has("turn_left") || actions.has("turn_right")) {
+    capabilities.push("会转向");
+  }
+  return `能力：${capabilities.length ? capabilities.join(" / ") : "仅等待"}`;
+}
+
+function initializeAiSettings() {
+  const config = loadAiConfig();
+  elements.aiBaseUrlInput.value = config.baseUrl || DEFAULT_AI_BASE_URL;
+  elements.aiModelInput.value = config.model || DEFAULT_AI_MODEL;
+  elements.aiApiKeyInput.value = loadAiKey();
+}
+
+function getPlayerAiConfig() {
+  const apiKey = elements.aiApiKeyInput.value.trim();
+  if (!apiKey) {
+    return null;
+  }
+
+  return {
+    apiKey,
+    baseUrl: elements.aiBaseUrlInput.value.trim() || DEFAULT_AI_BASE_URL,
+    model: elements.aiModelInput.value.trim() || DEFAULT_AI_MODEL
+  };
+}
+
+function saveAiSettings() {
+  try {
+    localStorage.setItem(AI_CONFIG_STORAGE_KEY, JSON.stringify({
+      baseUrl: elements.aiBaseUrlInput.value.trim(),
+      model: elements.aiModelInput.value.trim()
+    }));
+  } catch {
+    // Ignore storage failures in restricted browser contexts.
+  }
+
+  try {
+    const apiKey = elements.aiApiKeyInput.value.trim();
+    if (apiKey) {
+      sessionStorage.setItem(AI_KEY_SESSION_STORAGE_KEY, apiKey);
+    } else {
+      sessionStorage.removeItem(AI_KEY_SESSION_STORAGE_KEY);
+    }
+  } catch {
+    // Ignore storage failures in restricted browser contexts.
+  }
+}
+
+function loadAiConfig() {
+  try {
+    const raw = localStorage.getItem(AI_CONFIG_STORAGE_KEY);
+    if (!raw) {
+      return {};
+    }
+
+    const config = JSON.parse(raw);
+    return {
+      baseUrl: typeof config.baseUrl === "string" ? config.baseUrl : "",
+      model: typeof config.model === "string" ? config.model : ""
+    };
+  } catch {
+    return {};
+  }
+}
+
+function loadAiKey() {
+  try {
+    return sessionStorage.getItem(AI_KEY_SESSION_STORAGE_KEY) || "";
+  } catch {
+    return "";
+  }
 }
 
 function saveSession(roomCode, playerId, playerToken) {
@@ -843,6 +1209,23 @@ function clearActiveSession() {
   }
 }
 
+function leaveRoomLocally(message) {
+  appState.eventSource?.close();
+  appState.eventSource = null;
+  appState.connectionState = "closed";
+  appState.room = null;
+  appState.playerId = null;
+  appState.playerToken = null;
+  appState.generatedRuleSet = null;
+  appState.generationResult = null;
+  appState.gameState = null;
+  clearSession();
+  clearActiveSession();
+  clearRoomUrl();
+  setMessage(message);
+  renderApp();
+}
+
 function normalizeRoomCode(value) {
   return String(value || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
 }
@@ -856,6 +1239,12 @@ function createInviteUrl(roomCode) {
 function updateRoomUrl(roomCode) {
   const url = new URL(window.location.href);
   url.searchParams.set("room", roomCode);
+  window.history.replaceState({}, "", url);
+}
+
+function clearRoomUrl() {
+  const url = new URL(window.location.href);
+  url.searchParams.delete("room");
   window.history.replaceState({}, "", url);
 }
 

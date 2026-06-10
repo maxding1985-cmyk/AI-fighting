@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import { extname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
+import { createAiStrategyGenerator } from "./aiStrategyGenerator.js";
 import { RoomError, RoomManager } from "./roomManager.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -10,7 +11,9 @@ const __dirname = dirname(__filename);
 const rootDir = resolve(__dirname, "../..");
 const port = Number(process.env.PORT || 5173);
 const host = process.env.HOST || "127.0.0.1";
-const manager = new RoomManager();
+const manager = new RoomManager({
+  strategyGenerator: createAiStrategyGenerator()
+});
 const SSE_HEARTBEAT_MS = 10000;
 const SSE_RETRY_MS = 2000;
 
@@ -87,7 +90,11 @@ async function handleApi(req, res, url) {
 
   if (method === "POST" && parts.length === 5 && parts[0] === "api" && parts[1] === "rooms" && parts[3] === "strategy" && parts[4] === "generate") {
     const body = await readJson(req);
-    sendJson(res, { ruleSet: manager.generateStrategy(body.prompt) });
+    try {
+      sendJson(res, normalizeGeneration(await manager.generateStrategy(body.prompt, createGenerationOptions(body))));
+    } catch (error) {
+      throw new RoomError(400, error.message);
+    }
     return;
   }
 
@@ -102,6 +109,20 @@ async function handleApi(req, res, url) {
     const body = await readJson(req);
     manager.verifyPlayerToken(parts[2], body.playerId, body.playerToken);
     sendJson(res, { room: manager.restartRoom(parts[2]) });
+    return;
+  }
+
+  if (method === "POST" && parts.length === 5 && parts[0] === "api" && parts[1] === "rooms" && parts[3] === "exit" && parts[4] === "request") {
+    const body = await readJson(req);
+    manager.verifyPlayerToken(parts[2], body.playerId, body.playerToken);
+    sendJson(res, { room: manager.requestExit(parts[2], body.playerId) });
+    return;
+  }
+
+  if (method === "POST" && parts.length === 5 && parts[0] === "api" && parts[1] === "rooms" && parts[3] === "exit" && parts[4] === "confirm") {
+    const body = await readJson(req);
+    manager.verifyPlayerToken(parts[2], body.playerId, body.playerToken);
+    sendJson(res, { room: manager.confirmExit(parts[2], body.playerId) });
     return;
   }
 
@@ -199,7 +220,8 @@ function serveStatic(res, pathname) {
   }
 
   res.writeHead(200, {
-    "Content-Type": mimeTypes[extname(filePath)] || "application/octet-stream"
+    "Content-Type": mimeTypes[extname(filePath)] || "application/octet-stream",
+    "Cache-Control": "no-store"
   });
   createReadStream(filePath).pipe(res);
 }
@@ -209,6 +231,27 @@ function sendJson(res, data, statusCode = 200) {
     "Content-Type": "application/json; charset=utf-8"
   });
   res.end(JSON.stringify(data));
+}
+
+function normalizeGeneration(generation) {
+  if (generation?.ruleSet) {
+    return generation;
+  }
+
+  return {
+    ruleSet: generation,
+    source: "local"
+  };
+}
+
+function createGenerationOptions(body) {
+  const aiConfig = body?.aiConfig && typeof body.aiConfig === "object" && !Array.isArray(body.aiConfig)
+    ? body.aiConfig
+    : {};
+  return {
+    ...aiConfig,
+    mode: body?.generationMode || body?.mode || "auto"
+  };
 }
 
 function sendError(res, error) {

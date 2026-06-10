@@ -58,6 +58,20 @@ button.primary {
   background: var(--acid);
 }
 
+button.danger {
+  color: #fff7c7;
+  border-color: rgba(255, 107, 53, 0.72);
+  background:
+    linear-gradient(135deg, rgba(255, 107, 53, 0.34), rgba(103, 35, 20, 0.62)),
+    #351812;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.56;
+  transform: none;
+}
+
 button.stretch {
   width: 100%;
 }
@@ -261,6 +275,21 @@ h3 {
   margin: 14px 0;
 }
 
+.room-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.exit-notice {
+  padding: 10px;
+  margin-top: 10px;
+  color: var(--amber);
+  border: 1px solid rgba(255, 189, 63, 0.48);
+  background: rgba(255, 189, 63, 0.08);
+  line-height: 1.5;
+}
+
 .player-row {
   display: grid;
   grid-template-columns: 38px 1fr;
@@ -323,6 +352,72 @@ h3 {
   color: var(--muted);
 }
 
+.generation-modes {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  margin: 12px 0;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.generation-modes > strong {
+  color: var(--acid);
+}
+
+.generation-modes label {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 10px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid rgba(124, 255, 182, 0.18);
+  background: rgba(0, 0, 0, 0.14);
+}
+
+.generation-modes input {
+  width: auto;
+  margin: 0;
+  accent-color: var(--acid);
+}
+
+.generation-modes span {
+  color: var(--ink);
+}
+
+.generation-modes small {
+  grid-column: 2;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.ai-settings {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  margin: 12px 0;
+  border: 1px solid rgba(255, 189, 63, 0.35);
+  background:
+    linear-gradient(135deg, rgba(255, 189, 63, 0.1), transparent 58%),
+    rgba(0, 0, 0, 0.16);
+}
+
+.ai-settings strong {
+  display: block;
+  color: var(--amber);
+}
+
+.ai-settings small {
+  display: block;
+  margin-top: 0.35rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.ai-settings.inactive {
+  opacity: 0.56;
+}
+
 .presets {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -348,6 +443,19 @@ h3 {
 .rule-preview p {
   color: var(--muted);
   line-height: 1.5;
+}
+
+.rule-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.rule-meta span {
+  padding: 5px 8px;
+  color: #08130f;
+  background: rgba(124, 255, 182, 0.88);
 }
 
 .rule-preview ul {

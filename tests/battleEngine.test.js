@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { BattleEngine } from "../src/shared/battleEngine.js";
 import { validateRuleSet } from "../src/shared/rules.js";
+import { generateLocalStrategyRules } from "../src/shared/localStrategyGenerator.js";
 
 const shooter = {
   name: "测试射击",
@@ -104,4 +105,51 @@ test("battle ends in draw on timeout", () => {
   assert.equal(state.status, "finished");
   assert.equal(state.result.type, "draw");
   assert.equal(state.result.reason, "timeout");
+});
+
+test("local random movement shooting prompt generates movement and fire rules", () => {
+  const ruleSet = generateLocalStrategyRules("随机运动 一直开炮 遇到子弹躲避");
+  const actions = new Set(ruleSet.rules.map((rule) => rule.action));
+
+  assert.equal(ruleSet.name, "随机游走火力型");
+  assert.equal(actions.has("shoot"), true);
+  assert.equal(actions.has("move_forward") || actions.has("move_backward"), true);
+  assert.equal(ruleSet.rules.some((rule) => rule.when.includes("bullet_in_front") || rule.when.includes("bullet_near")), true);
+});
+
+test("shoot rule falls through to movement while weapon is cooling down", () => {
+  const alwaysShootThenMove = {
+    name: "一直射击后移动",
+    description: "冷却时继续移动",
+    rules: [
+      { priority: 100, when: ["always"], action: "shoot" },
+      { priority: 50, when: ["path_forward_clear"], action: "move_forward" },
+      { priority: 1, when: ["always"], action: "wait" }
+    ]
+  };
+  const engine = new BattleEngine({
+    seed: 12,
+    maxTicks: 4,
+    map: { width: 7, height: 5, walls: [] },
+    ruleSets: { A: alwaysShootThenMove, B: waiter }
+  });
+
+  engine.state.tanks[0] = {
+    ...engine.state.tanks[0],
+    x: 1,
+    y: 2,
+    direction: "right"
+  };
+  engine.state.tanks[1] = {
+    ...engine.state.tanks[1],
+    x: 5,
+    y: 4,
+    direction: "left"
+  };
+
+  engine.step();
+  const state = engine.step();
+
+  assert.equal(state.lastActions.A.action, "move_forward");
+  assert.equal(state.tanks.find((tank) => tank.playerId === "A").x, 2);
 });

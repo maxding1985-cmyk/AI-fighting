@@ -21,14 +21,7 @@ const keywordProfiles = [
 
 export function generateLocalStrategyRules(prompt) {
   const source = String(prompt || "").trim();
-  const matched = keywordProfiles
-    .map((profile) => ({
-      ...profile,
-      score: profile.words.filter((word) => source.includes(word)).length
-    }))
-    .sort((left, right) => right.score - left.score)
-    .find((profile) => profile.score > 0);
-  const key = matched?.key || "aggressive";
+  const key = pickStrategyKey(source);
   const ruleSet = cloneRuleSet(builtInRuleSets[key]);
 
   ruleSet.description = source
@@ -41,4 +34,24 @@ export function generateLocalStrategyRules(prompt) {
   }
 
   return validation.ruleSet;
+}
+
+function pickStrategyKey(source) {
+  if (hasAny(source, ["随机", "运动", "移动", "游走", "乱走"]) &&
+    hasAny(source, ["射击", "开火", "开炮", "打炮", "一直射", "一直开火", "一直开炮"])) {
+    return "randomShooter";
+  }
+
+  const matched = keywordProfiles
+    .map((profile) => ({
+      ...profile,
+      score: profile.words.filter((word) => source.includes(word)).length
+    }))
+    .sort((left, right) => right.score - left.score)
+    .find((profile) => profile.score > 0);
+  return matched?.key || "aggressive";
+}
+
+function hasAny(source, words) {
+  return words.some((word) => source.includes(word));
 }

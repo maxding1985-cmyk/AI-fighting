@@ -22,6 +22,9 @@ export class RoomManager {
     this.codeLength = options.codeLength || 6;
     this.disconnectGraceMs = options.disconnectGraceMs ?? 5000;
     this.tokenFactory = options.tokenFactory || createPlayerToken;
+    this.strategyGenerator = options.strategyGenerator || {
+      generate: (prompt) => generateLocalStrategyRules(prompt)
+    };
   }
 
   createRoom({ playerName = "玩家 A" } = {}) {
@@ -40,6 +43,8 @@ export class RoomManager {
       timer: null,
       gameState: null,
       result: null,
+      exitRequest: null,
+      closedAt: null,
       createdAt: Date.now(),
       updatedAt: Date.now()
     };
@@ -54,6 +59,10 @@ export class RoomManager {
 
   joinRoom(code, { playerName = "玩家 B" } = {}) {
     const room = this.getRoom(code);
+    if (room.status === "closed") {
+      throw new RoomError(409, "房间已退出");
+    }
+
     if (room.players.B) {
       throw new RoomError(409, "房间已满");
     }
@@ -79,8 +88,8 @@ export class RoomManager {
     };
   }
 
-  generateStrategy(prompt) {
-    return generateLocalStrategyRules(prompt);
+  generateStrategy(prompt, options = {}) {
+    return this.strategyGenerator.generate(prompt, options);
   }
 
   confirmStrategy(code, playerId, ruleSet) {
@@ -94,6 +103,12 @@ export class RoomManager {
 
     if (room.status === "fighting") {
       throw new RoomError(409, "战斗已经开始，不能修改规则");
+    }
+    if (room.status === "closed") {
+      throw new RoomError(409, "房间已退出，不能修改规则");
+    }
+    if (room.exitRequest) {
+      throw new RoomError(409, "退出请求待确认，不能修改规则");
     }
 
     player.ruleSet = validation.ruleSet;
@@ -111,6 +126,13 @@ export class RoomManager {
 
   restartRoom(code) {
     const room = this.getRoom(code);
+    if (room.status === "closed") {
+      throw new RoomError(409, "房间已退出，不能再来一局");
+    }
+    if (room.exitRequest) {
+      throw new RoomError(409, "退出请求待确认，不能再来一局");
+    }
+
     this.stopTimer(room);
 
     PLAYER_IDS.forEach((playerId) => {
@@ -124,10 +146,69 @@ export class RoomManager {
     room.engine = null;
     room.gameState = null;
     room.result = null;
+    room.exitRequest = null;
     room.status = room.players.B ? "preparing" : "waiting";
     this.touch(room);
     this.emit(room, "room:update", this.toSnapshot(room));
     return this.toSnapshot(room);
+  }
+
+  requestExit(code, playerId) {
+    const room = this.getRoom(code);
+    const player = this.getPlayer(room, playerId);
+
+    if (room.status === "closed") {
+      return this.toSnapshot(room);
+    }
+
+    const opponentId = getOpponentId(playerId);
+    if (!room.players[opponentId] || !room.players[opponentId].connected) {
+      return this.closeRoom(room, {
+        requesterId: playerId,
+        confirmerId: playerId,
+        message: `${player.name} 已退出房间`
+      });
+    }
+
+    if (room.exitRequest?.requesterId === playerId) {
+      return this.toSnapshot(room);
+    }
+
+    if (room.exitRequest && room.exitRequest.requesterId !== playerId) {
+      return this.confirmExit(code, playerId);
+    }
+
+    room.exitRequest = {
+      requesterId: playerId,
+      requestedAt: Date.now()
+    };
+    this.touch(room);
+    this.emit(room, "room:update", this.toSnapshot(room));
+    return this.toSnapshot(room);
+  }
+
+  confirmExit(code, playerId) {
+    const room = this.getRoom(code);
+    const player = this.getPlayer(room, playerId);
+
+    if (room.status === "closed") {
+      return this.toSnapshot(room);
+    }
+
+    if (!room.exitRequest) {
+      throw new RoomError(409, "当前没有待确认的退出请求");
+    }
+
+    if (room.exitRequest.requesterId === playerId) {
+      throw new RoomError(409, "退出请求需要另一名玩家确认");
+    }
+
+    const requester = this.getPlayer(room, room.exitRequest.requesterId);
+    return this.closeRoom(room, {
+      requesterId: requester.id,
+      confirmerId: player.id,
+      message: `${requester.name} 请求退出，${player.name} 已确认，游戏已退出`
+    });
   }
 
   tickRoom(code) {
@@ -238,6 +319,10 @@ export class RoomManager {
   }
 
   startBattle(room) {
+    if (room.status === "closed") {
+      throw new RoomError(409, "房间已退出，不能开始战斗");
+    }
+
     this.stopTimer(room);
     const ruleSets = {
       A: room.players.A.ruleSet,
@@ -252,6 +337,7 @@ export class RoomManager {
     room.gameState = room.engine.getState();
     room.status = "fighting";
     room.result = null;
+    room.exitRequest = null;
     this.touch(room);
     this.emit(room, "room:update", this.toSnapshot(room));
     this.emit(room, "battle:state", {
@@ -307,6 +393,34 @@ export class RoomManager {
     });
   }
 
+  closeRoom(room, { requesterId, confirmerId, message }) {
+    this.stopTimer(room);
+    room.status = "closed";
+    room.closedAt = Date.now();
+    room.exitRequest = {
+      requesterId,
+      confirmerId,
+      requestedAt: room.exitRequest?.requestedAt || Date.now(),
+      confirmedAt: Date.now()
+    };
+    room.result = {
+      type: "exit",
+      reason: "player_exit",
+      requesterPlayerId: requesterId,
+      confirmerPlayerId: confirmerId,
+      message,
+      tick: room.gameState?.tick || 0
+    };
+    this.touch(room);
+    const snapshot = this.toSnapshot(room);
+    this.emit(room, "room:update", snapshot);
+    this.emit(room, "room:closed", {
+      room: snapshot,
+      result: room.result
+    });
+    return snapshot;
+  }
+
   toSnapshot(room) {
     return {
       code: room.code,
@@ -322,6 +436,8 @@ export class RoomManager {
       })),
       gameState: room.gameState,
       result: room.result,
+      exitRequest: room.exitRequest,
+      closedAt: room.closedAt,
       createdAt: room.createdAt,
       updatedAt: room.updatedAt
     };
@@ -341,6 +457,10 @@ function createPlayer(id, name, token) {
 
 function normalizeCode(code) {
   return String(code || "").trim().toUpperCase();
+}
+
+function getOpponentId(playerId) {
+  return playerId === "A" ? "B" : "A";
 }
 
 function createPlayerToken() {
