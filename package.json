@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node src/server/server.js",
     "test": "node --test",
-    "check": "node --test"
+    "check": "node --test",
+    "install-hooks": "sh scripts/install-git-hooks.sh"
   }
 }

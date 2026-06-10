@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+set -eu
+
+printf 'Running pre-commit checks: npm test\n'
+npm test

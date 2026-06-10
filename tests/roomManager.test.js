@@ -93,6 +93,73 @@ test("confirming both strategies starts and resolves a server-authoritative batt
   assert.equal(events.includes("battle:end"), true);
 });
 
+
+test("two-player flow makes player A fire and move for random shooting prompt", () => {
+  const manager = new RoomManager({
+    autoTick: false,
+    battleOptions: {
+      seed: 21,
+      maxTicks: 40,
+      map: { width: 9, height: 7, walls: [] }
+    }
+  });
+  const events = [];
+  const created = manager.createRoom({ playerName: "Player A" });
+  const code = created.room.code;
+
+  manager.subscribe(code, (event, data) => events.push({ event, data }));
+  manager.joinRoom(code, { playerName: "Player B" });
+  manager.connectPlayer(code, "A");
+  manager.connectPlayer(code, "B");
+
+  const ruleA = manager.generateStrategy("随机运动，遇到子弹躲避，一直射击");
+  const ruleB = {
+    name: "测试靶车",
+    description: "保持不动，用于验证玩家 A 的行为。",
+    rules: [
+      { priority: 1, when: ["always"], action: "wait" }
+    ]
+  };
+
+  assert.equal(ruleA.name, "随机游走火力型");
+  manager.confirmStrategy(code, "A", ruleA);
+  let room = manager.confirmStrategy(code, "B", ruleB);
+
+  assert.equal(room.status, "fighting");
+
+  const positions = new Set([positionOf(room, "A")]);
+  const actions = [];
+  const logs = [];
+
+  for (let index = 0; index < 18 && room.status === "fighting"; index += 1) {
+    room = manager.tickRoom(code);
+    const gameState = room.gameState;
+    const action = gameState?.lastActions?.A?.action;
+
+    if (action) {
+      actions.push(action);
+    }
+    if (gameState) {
+      positions.add(positionOf(room, "A"));
+      logs.push(...gameState.logs.map((item) => item.message));
+    }
+  }
+
+  assert.equal(events.some((item) => item.event === "battle:state"), true);
+  assert.equal(actions.includes("shoot"), true, formatRegressionDebug(room, actions, logs));
+  assert.equal(
+    actions.some((action) => action === "move_forward" || action === "move_backward"),
+    true,
+    formatRegressionDebug(room, actions, logs)
+  );
+  assert.equal(positions.size > 1, true, formatRegressionDebug(room, actions, logs));
+  assert.equal(logs.some((message) => message.includes("Player A 开火")), true);
+  assert.equal(
+    logs.some((message) => message.includes("Player A 决策") && (message.includes("前进") || message.includes("后退"))),
+    true
+  );
+});
+
 test("disconnect grace keeps player online through quick reconnects", async () => {
   const manager = new RoomManager({
     autoTick: false,
@@ -171,3 +238,18 @@ test("exit closes immediately when opponent is offline", () => {
   assert.equal(closed.exitRequest.requesterId, "A");
   assert.equal(closed.exitRequest.confirmerId, "A");
 });
+
+function positionOf(room, playerId) {
+  const tank = room.gameState?.tanks.find((item) => item.playerId === playerId);
+  return tank ? `${tank.x},${tank.y}` : "missing";
+}
+
+function formatRegressionDebug(room, actions, logs) {
+  return JSON.stringify({
+    status: room.status,
+    tick: room.gameState?.tick,
+    actions,
+    playerA: room.gameState?.tanks.find((tank) => tank.playerId === "A"),
+    recentLogs: logs.slice(-12)
+  }, null, 2);
+}
