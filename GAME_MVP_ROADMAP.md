@@ -1,6 +1,6 @@
 # Game MVP Roadmap
 
-_Last updated: 2026-06-10_
+_Last updated: 2026-06-11_
 
 ## 1. Game Vision
 
@@ -23,9 +23,9 @@ _Last updated: 2026-06-10_
 |---|---|
 | Current MVP | MVP 1 - LAN Playable Duel |
 | Overall status | In Progress / 可局域网试玩 |
-| Recently completed | Server-authoritative rooms, SSE sync, explicit AI generation modes, exit confirmation flow, decision logs, README update |
+| Recently completed | Server-authoritative rooms, SSE sync, explicit AI generation modes, exit confirmation flow, decision logs, automated API/UI E2E tests |
 | Current focus | Make the two-player loop understandable, debuggable, and repeatable |
-| Current blockers | No persistence, no public deployment security, no full browser UI automation tests |
+| Current blockers | No persistence, no public deployment security, room cleanup still missing |
 | Next review date | 2026-06-17 |
 
 ## 3. MVP Overview
@@ -50,7 +50,7 @@ _Last updated: 2026-06-10_
 | Explicit AI generation modes | Strategy / AI | Must | MVP 1 | Done | Local / player AI / server AI are separated |
 | Decision and battle logs | Debugging | Must | MVP 1 | Done | Shows selected rule, action, and skip reasons |
 | Exit confirmation flow | Room flow | Should | MVP 1 | Done | Solo/offline direct exit; online needs confirmation |
-| End-to-end tests | QA | Must | MVP 1 | In Progress | HTTP E2E covers create, join, generate, confirm, and player A movement/fire regression; browser UI automation still needed |
+| End-to-end tests | QA | Must | MVP 1 | Testing | HTTP and browser UI E2E cover create, join, generate, confirm, battle behavior, and exit confirmation |
 | Rule editor | Strategy | Should | MVP 2 | Planned | Manual edit after AI generation |
 | More tactical conditions/actions | Combat / Strategy | Should | MVP 2 | Planned | Distance control, dodge directions, chase/retreat |
 | Battle history and replay | Meta | Should | MVP 2 | Planned | Needs persistence |
@@ -97,9 +97,9 @@ _Last updated: 2026-06-10_
   - LAN/firewall/proxy issues may confuse first-time setup.
   - SSE is adequate now but may become limiting for richer real-time interactions.
 - **Next actions:**
-  1. Extend E2E tests to cover full browser UI flow and exit confirmation.
+  1. Add room cleanup to prevent stale in-memory rooms.
   2. Improve first-use guidance for LAN access and AI generation modes.
-  3. Add room cleanup to prevent stale in-memory rooms.
+  3. Extend E2E tests for more strategy and error-path regressions.
   4. Collect playtest feedback on whether strategy iteration feels fun.
 
 ### MVP 2 - Replayable Strategy Lab
@@ -131,7 +131,7 @@ _Last updated: 2026-06-10_
 
 | Action | Owner | Status | Notes |
 |---|---|---|---|
-| Add full browser E2E test for two-player duel | TBD | In Progress | HTTP/API E2E exists; browser UI automation remains the highest confidence gap |
+| Add full browser E2E test for two-player duel | TBD | Testing | Covers two browser contexts, strategy generation/confirmation, battle behavior, and exit confirmation |
 | Add room cleanup / expiry | TBD | Planned | Needed before longer LAN testing |
 | Improve onboarding copy for AI modes and LAN access | TBD | Planned | Reduces confusion during playtests |
 | Collect first playtest feedback | TBD | Planned | Validate whether strategy iteration is fun |
@@ -152,7 +152,7 @@ _Last updated: 2026-06-10_
 | Browser or LAN caching makes testers see old code | Medium | MVP 1 | Static responses use `Cache-Control: no-store`; ask testers to hard refresh | Mitigated |
 | AI API keys are unsafe on public deployment if forwarded casually | High | MVP 3 | Require HTTPS, auth, server-side key isolation, or server-only AI mode | Open |
 | In-memory rooms vanish on restart | Medium | MVP 2 | Add persistence or communicate MVP limitation | Open |
-| No full browser UI E2E tests for multi-browser flow | High | MVP 1 | HTTP E2E covers server/API behavior; add browser automation tests next | Partially mitigated |
+| Browser UI regressions in multi-browser flow | Medium | MVP 1 | Browser UI E2E now covers the main happy path; extend edge cases over time | Mitigated |
 | Rule vocabulary may limit strategy expression | Medium | MVP 2 | Add richer conditions/actions and manual editor | Open |
 
 ## 9. Progress Log
@@ -163,6 +163,7 @@ _Last updated: 2026-06-10_
 | 2026-06-10 | Explicit AI generation modes, decision logs, exit flow, README updates, and tests were completed | Makes LAN playable loop clearer and easier to debug | Marked several MVP 1 features Done; kept E2E tests and cleanup as next actions |
 | 2026-06-10 | Backfilled timestamped commit notes for existing repository history | Improves traceability of completed MVP work and future submissions | Added `commit-notes/` as the per-commit documentation trail |
 | 2026-06-10 | Added automated test coverage for player A movement/fire regression and CI/pre-commit test flow | Reduces risk that AI battle behavior regresses after future changes | Marked E2E coverage In Progress and kept browser UI automation as next gap |
+| 2026-06-11 | Added browser UI E2E for the two-player room flow, player A behavior, and exit confirmation | Validates the real user path through two independent browser sessions | Marked E2E coverage Testing; moved room cleanup to the next highest gap |
 
 ## 10. Decision Log
 
@@ -173,6 +174,7 @@ _Last updated: 2026-06-10_
 | 2026-06-10 | Update roadmap during commit workflow for game projects | Planning should evolve with actual committed progress | Added `commit-code` skill workflow requirement to update `GAME_MVP_ROADMAP.md` |
 | 2026-06-10 | Create timestamped commit notes for every commit | Each submission should leave a durable change record beyond the git message | Added `commit-note` workflow and backfilled historical notes |
 | 2026-06-10 | Run `npm test` automatically in CI and optional local pre-commit hooks | Battle regressions should be caught before merging or local commits | Added GitHub Actions test workflow and hook installer |
+| 2026-06-11 | Run browser UI E2E separately from default local tests | Full UI tests require Playwright/browser setup and are better suited for CI or explicit local validation | Added `npm run test:ui` and CI Playwright installation |
 
 ## 11. Open Questions
 

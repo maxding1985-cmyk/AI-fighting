@@ -6,7 +6,11 @@
   "scripts": {
     "start": "node src/server/server.js",
     "test": "node --test",
+    "test:ui": "RUN_UI_E2E=1 node --test tests/browserUi.e2e.test.js",
     "check": "node --test",
     "install-hooks": "sh scripts/install-git-hooks.sh"
+  },
+  "devDependencies": {
+    "playwright": "^1.60.0"
   }
 }

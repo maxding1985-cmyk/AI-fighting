@@ -169,6 +169,16 @@ AI_RULES_FORCE_LOCAL=true                     # 强制使用本地生成器
 npm test
 ```
 
+运行真实浏览器 UI E2E：
+
+```bash
+npm install
+npx playwright install chromium
+npm run test:ui
+```
+
+如果本地已经安装过依赖和 Playwright Chromium，之后只需要运行 `npm run test:ui`。
+
 当前测试覆盖：
 
 - 战斗引擎基础行为。
@@ -178,12 +188,13 @@ npm test
 - 房间创建、加入、恢复。
 - 服务端权威战斗流程。
 - HTTP API 端到端流程：创建房间、加入、生成规则、确认开战，并验证玩家 A 会移动和开炮。
+- 浏览器 UI 端到端流程：两个独立浏览器会话创建/加入房间、生成/确认规则、开战、验证玩家 A 移动/开炮，并覆盖双人在线退出确认。
 - 断线宽限和重连状态。
 - 退出游戏请求和确认流程。
 
 ### 自动测试
 
-- GitHub Actions 会在 push 到 `main`、Pull Request 和手动触发时自动运行 `npm test`。
+- GitHub Actions 会在 push 到 `main`、Pull Request 和手动触发时自动运行 `npm test` 和 `npm run test:ui`。
 - 本地提交前可以安装 git hook：
 
 ```bash
@@ -192,7 +203,7 @@ npm run install-hooks
 
 安装后，每次 `git commit` 前都会自动执行 `npm test`。如果测试失败，提交会被阻止。
 
-注意：HTTP E2E 测试会启动本地服务并监听临时端口。如果当前沙盒或系统权限禁止监听端口，测试会自动跳过该用例；在正常本地环境和 GitHub Actions 中会完整执行。
+注意：HTTP E2E 和浏览器 UI E2E 会启动本地服务并监听临时端口。如果当前沙盒或系统权限禁止监听端口，测试会自动跳过对应用例；在正常本地环境和 GitHub Actions 中会完整执行。
 
 ## 当前限制
 
@@ -206,7 +217,7 @@ npm run install-hooks
 
 1. 增加房间过期清理，避免内存中长期堆积无效房间。
 2. 增加历史战斗持久化，支持复盘和战斗记录查询。
-3. 扩展端到端测试，继续覆盖双浏览器 UI 操作、退出流程和更多战术回归场景。
+3. 扩展端到端测试，继续覆盖更多战术回归场景、异常流程和移动端布局。
 4. 优化 AI 策略编译提示词，提升复杂战术的可执行规则质量。
 5. 增加规则编辑器，让玩家在 AI 生成后手动微调规则优先级和动作。
 6. 增加更多条件和动作，例如侧移、追踪敌人、远离子弹、保持距离。
