@@ -123,6 +123,7 @@ input:focus {
 
 .hero,
 .room-gate,
+.onboarding-panel,
 .room-panel,
 .strategy-card,
 .arena-card,
@@ -149,6 +150,84 @@ input:focus {
 .room-gate p {
   color: var(--muted);
   line-height: 1.7;
+}
+
+.onboarding-panel {
+  padding: 22px;
+  margin-bottom: 24px;
+  background:
+    linear-gradient(135deg, rgba(124, 255, 182, 0.09), transparent 38%),
+    linear-gradient(315deg, rgba(255, 189, 63, 0.1), transparent 44%),
+    var(--panel);
+}
+
+.onboarding-heading {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.65fr) 1fr;
+  gap: 16px;
+  align-items: end;
+  margin-bottom: 16px;
+}
+
+.onboarding-heading p:last-child {
+  margin-bottom: 0;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.onboarding-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.onboarding-card {
+  position: relative;
+  min-height: 100%;
+  padding: 16px;
+  overflow: hidden;
+  border: 1px solid rgba(124, 255, 182, 0.22);
+  background:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.16), rgba(0, 0, 0, 0.3)),
+    rgba(8, 19, 15, 0.5);
+}
+
+.onboarding-card > span {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  color: rgba(255, 189, 63, 0.26);
+  font-size: 2.6rem;
+  line-height: 1;
+}
+
+.onboarding-card h3 {
+  position: relative;
+  margin-right: 56px;
+}
+
+.onboarding-card ol,
+.onboarding-card ul {
+  display: grid;
+  gap: 8px;
+  padding-left: 1.1rem;
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.onboarding-card strong {
+  color: var(--ink);
+  font-weight: 400;
+}
+
+.onboarding-card code {
+  display: inline-block;
+  max-width: 100%;
+  padding: 0.12rem 0.28rem;
+  overflow-wrap: anywhere;
+  color: #08130f;
+  background: rgba(124, 255, 182, 0.82);
 }
 
 .room-actions {
@@ -281,6 +360,15 @@ h3 {
   gap: 10px;
 }
 
+.room-help {
+  padding: 10px;
+  margin: 10px 0 0;
+  color: var(--muted);
+  border: 1px dashed rgba(124, 255, 182, 0.28);
+  background: rgba(0, 0, 0, 0.14);
+  line-height: 1.55;
+}
+
 .exit-notice {
   padding: 10px;
   margin-top: 10px;
@@ -389,6 +477,64 @@ h3 {
   grid-column: 2;
   color: var(--muted);
   line-height: 1.45;
+}
+
+.mode-guide {
+  padding: 12px;
+  margin: -2px 0 12px;
+  border: 1px solid rgba(124, 255, 182, 0.22);
+  background:
+    linear-gradient(90deg, rgba(124, 255, 182, 0.1), transparent),
+    rgba(0, 0, 0, 0.14);
+}
+
+.mode-guide[data-mode="player-ai"] {
+  border-color: rgba(255, 189, 63, 0.38);
+  background:
+    linear-gradient(90deg, rgba(255, 189, 63, 0.12), transparent),
+    rgba(0, 0, 0, 0.14);
+}
+
+.mode-guide[data-mode="server-ai"] {
+  border-color: rgba(255, 107, 53, 0.34);
+  background:
+    linear-gradient(90deg, rgba(255, 107, 53, 0.12), transparent),
+    rgba(0, 0, 0, 0.14);
+}
+
+.mode-guide strong {
+  display: block;
+  color: var(--acid);
+}
+
+.mode-guide[data-mode="player-ai"] strong {
+  color: var(--amber);
+}
+
+.mode-guide[data-mode="server-ai"] strong {
+  color: #ff9b68;
+}
+
+.mode-guide p {
+  margin: 0.35rem 0 0.55rem;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.mode-guide ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.mode-guide li {
+  padding: 5px 7px;
+  color: #08130f;
+  background: rgba(248, 240, 207, 0.86);
+  font-size: 0.72rem;
 }
 
 .ai-settings {
@@ -604,6 +750,11 @@ canvas {
 
 @media (max-width: 1180px) {
   .room-gate {
+    grid-template-columns: 1fr;
+  }
+
+  .onboarding-heading,
+  .onboarding-grid {
     grid-template-columns: 1fr;
   }
 

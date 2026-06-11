@@ -53,6 +53,23 @@ const GENERATION_MODE_LABELS = {
   "player-ai": "我的 AI",
   "server-ai": "服务端 AI"
 };
+const GENERATION_MODE_GUIDANCE = {
+  local: {
+    title: "第一次试玩推荐：本地生成器",
+    body: "不需要联网或 API Key，适合先验证房间、准备、开战和日志流程是否正常。",
+    notes: ["理解能力有限", "常见中文战术已优化", "生成失败风险最低"]
+  },
+  "player-ai": {
+    title: "进阶：我的 AI",
+    body: "使用你自己的 OpenAI-compatible 配置；API Key 只保存在当前浏览器会话，生成时会发送给当前 Node 服务端代调。",
+    notes: ["需要 Base URL / Model / API Key", "适合复杂战术", "公网部署前不要在不可信服务端输入 Key"]
+  },
+  "server-ai": {
+    title: "房主统一配置：服务端 AI",
+    body: "使用服务端环境变量里的默认 AI 配置；如果房主没有配置 AI_RULES_API_KEY，会直接提示错误而不是静默降级。",
+    notes: ["玩家无需填写 Key", "适合 LAN 试玩统一模型", "需要重启服务读取环境变量"]
+  }
+};
 
 const appState = {
   room: null,
@@ -79,8 +96,8 @@ app.innerHTML = `
       </div>
       <div class="hero-card">
         <span>当前版本</span>
-        <strong>MVP-03</strong>
-        <small>分享链接 + 身份恢复</small>
+        <strong>MVP-1</strong>
+        <small>局域网双人试玩</small>
       </div>
     </section>
 
@@ -103,6 +120,45 @@ app.innerHTML = `
       <p class="message" id="lobbyMessage"></p>
     </section>
 
+    <section class="onboarding-panel" id="onboardingSection" aria-labelledby="onboardingTitle">
+      <div class="onboarding-heading">
+        <div>
+          <p class="eyebrow">Quick Start</p>
+          <h2 id="onboardingTitle">第一次局域网试玩，先看这 3 件事</h2>
+        </div>
+        <p>先确认访问方式，再选择生成模式；这样两名玩家更容易完成一整局并看懂发生了什么。</p>
+      </div>
+      <div class="onboarding-grid">
+        <article class="onboarding-card">
+          <span>01</span>
+          <h3>局域网访问</h3>
+          <ol>
+            <li>房主用 <code>HOST=0.0.0.0 PORT=5173 npm start</code> 启动。</li>
+            <li>两台设备连同一个 Wi-Fi，并用房主局域网 IP 打开页面。</li>
+            <li>如果打不开，先检查 macOS 防火墙、VPN、代理和浏览器缓存。</li>
+          </ol>
+        </article>
+        <article class="onboarding-card">
+          <span>02</span>
+          <h3>双人流程</h3>
+          <ol>
+            <li>A 创建房间并复制邀请链接。</li>
+            <li>B 通过链接或房间码加入。</li>
+            <li>双方生成规则、确认准备，战斗会自动开始。</li>
+          </ol>
+        </article>
+        <article class="onboarding-card">
+          <span>03</span>
+          <h3>AI 生成方式</h3>
+          <ul>
+            <li><strong>本地生成器</strong>：最快、无 Key，适合首测。</li>
+            <li><strong>我的 AI</strong>：用自己的兼容接口，适合复杂战术。</li>
+            <li><strong>服务端 AI</strong>：由房主环境变量统一配置。</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
     <section class="layout" id="roomArea" hidden>
       <aside class="strategy-board">
         <article class="room-panel">
@@ -115,6 +171,7 @@ app.innerHTML = `
             <button id="copyRoomButton">复制邀请链接</button>
             <button class="danger" id="exitRoomButton">退出游戏</button>
           </div>
+          <p class="room-help" id="roomHelp"></p>
           <div class="exit-notice" id="exitNotice" hidden></div>
           <p class="message" id="roomMessage"></p>
         </article>
@@ -149,6 +206,7 @@ app.innerHTML = `
               <small>使用服务器环境变量里的默认 AI 配置。</small>
             </label>
           </div>
+          <div class="mode-guide" id="modeGuide"></div>
           <div class="ai-settings" id="aiSettings">
             <div>
               <strong>我的 AI 接口</strong>
@@ -217,6 +275,7 @@ app.innerHTML = `
 
 const elements = {
   lobbySection: document.querySelector("#lobbySection"),
+  onboardingSection: document.querySelector("#onboardingSection"),
   roomArea: document.querySelector("#roomArea"),
   playerNameInput: document.querySelector("#playerNameInput"),
   roomCodeInput: document.querySelector("#roomCodeInput"),
@@ -230,6 +289,7 @@ const elements = {
   playersList: document.querySelector("#playersList"),
   copyRoomButton: document.querySelector("#copyRoomButton"),
   exitRoomButton: document.querySelector("#exitRoomButton"),
+  roomHelp: document.querySelector("#roomHelp"),
   exitNotice: document.querySelector("#exitNotice"),
   roomMessage: document.querySelector("#roomMessage"),
   strategyCard: document.querySelector("#strategyCard"),
@@ -238,6 +298,7 @@ const elements = {
   strategyPrompt: document.querySelector("#strategyPrompt"),
   generationModeGroup: document.querySelector("#generationModeGroup"),
   generationModeInputs: [...document.querySelectorAll("input[name='generationMode']")],
+  modeGuide: document.querySelector("#modeGuide"),
   aiSettings: document.querySelector("#aiSettings"),
   aiBaseUrlInput: document.querySelector("#aiBaseUrlInput"),
   aiModelInput: document.querySelector("#aiModelInput"),
@@ -636,6 +697,7 @@ function renderApp() {
   const room = appState.room;
   const savedSession = loadSession();
   elements.lobbySection.hidden = Boolean(room);
+  elements.onboardingSection.hidden = Boolean(room);
   elements.roomArea.hidden = !room;
   elements.restoreSessionButton.hidden = Boolean(room) || !savedSession;
   if (savedSession) {
@@ -668,6 +730,7 @@ function renderApp() {
   elements.generateButton.disabled = Boolean(isLocked);
   elements.confirmButton.disabled = Boolean(isLocked);
   elements.restartButton.disabled = roomStatus !== "finished";
+  elements.roomHelp.textContent = getRoomHelpText(room, opponent);
   renderGenerationControls(isLocked);
   renderExitControls();
 
@@ -956,6 +1019,27 @@ function getWaitingLog() {
   return "等待第一发炮弹。";
 }
 
+function getRoomHelpText(room, opponent) {
+  if (room.status === "waiting") {
+    return "复制邀请链接发给同 Wi-Fi 对手；若打不开，请确认房主用 HOST=0.0.0.0 启动、设备在同一局域网，并允许 Node 通过防火墙。";
+  }
+  if (room.status === "preparing") {
+    return opponent
+      ? "双方都需要生成并确认规则；确认后规则会锁定，本局结束前不能再修改。"
+      : "等待第二名玩家加入后，再一起生成并确认策略。";
+  }
+  if (room.status === "fighting") {
+    return "战斗由服务端自动执行；观察右侧日志可以看到每 tick 的规则命中、移动、射击和跳过原因。";
+  }
+  if (room.status === "finished") {
+    return "本局已结束，可以点击“再来一局”重置策略，也可以退出回到大厅。";
+  }
+  if (room.status === "closed") {
+    return "房间已关闭，返回大厅后可以重新创建或加入房间。";
+  }
+  return "复制邀请链接后，对手可以直接打开链接加入当前房间。";
+}
+
 function getPlayerStatusText(player) {
   const request = appState.room?.exitRequest;
   const exitText = request?.requesterId === player.id ? "请求退出" : "";
@@ -1000,7 +1084,20 @@ function renderGenerationControls(isLocked) {
     input.disabled = Boolean(isLocked || !usesPlayerAi);
   });
   elements.aiSettings.classList.toggle("inactive", !usesPlayerAi);
+  elements.modeGuide.dataset.mode = mode;
+  elements.modeGuide.innerHTML = renderGenerationModeGuide(mode);
   elements.generateButton.textContent = getGenerateButtonText(mode);
+}
+
+function renderGenerationModeGuide(mode) {
+  const guide = GENERATION_MODE_GUIDANCE[mode] || GENERATION_MODE_GUIDANCE.local;
+  return `
+    <strong>${escapeHtml(guide.title)}</strong>
+    <p>${escapeHtml(guide.body)}</p>
+    <ul>
+      ${guide.notes.map((note) => `<li>${escapeHtml(note)}</li>`).join("")}
+    </ul>
+  `;
 }
 
 function getGenerationMode() {

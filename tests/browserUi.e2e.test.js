@@ -44,9 +44,14 @@ test("browser UI E2E covers two-player setup, battle behavior, and exit confirma
     const playerB = await contextB.newPage();
 
     await playerA.goto(baseUrl);
+    await expectText(playerA.locator("#onboardingSection"), "第一次局域网试玩");
+    await expectText(playerA.locator("#onboardingSection"), "HOST=0.0.0.0");
+    await expectText(playerA.locator("#onboardingSection"), "本地生成器");
     await playerA.locator("#playerNameInput").fill("Player A");
     await playerA.locator("#createRoomButton").click();
     await expectText(playerA.locator("#currentPlayerText"), "当前身份：A 方");
+    await expectText(playerA.locator("#roomHelp"), "复制邀请链接发给同 Wi-Fi 对手");
+    await expectText(playerA.locator("#modeGuide"), "第一次试玩推荐");
     const roomCode = (await playerA.locator("#roomCodeText").textContent()).trim();
     assert.match(roomCode, /^[A-Z0-9]{6}$/);
 
@@ -55,6 +60,7 @@ test("browser UI E2E covers two-player setup, battle behavior, and exit confirma
     await playerB.locator("#joinRoomButton").click();
     await expectText(playerB.locator("#currentPlayerText"), "当前身份：B 方");
     await expectText(playerA.locator("#playersList"), "Player B");
+    await expectText(playerB.locator("#modeGuide"), "第一次试玩推荐");
 
     await chooseLocalGeneration(playerA);
     await chooseLocalGeneration(playerB);

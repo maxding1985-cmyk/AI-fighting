@@ -23,9 +23,9 @@ _Last updated: 2026-06-11_
 |---|---|
 | Current MVP | MVP 1 - LAN Playable Duel |
 | Overall status | In Progress / 可局域网试玩 |
-| Recently completed | Server-authoritative rooms, SSE sync, explicit AI generation modes, exit confirmation flow, decision logs, automated API/UI E2E tests, room cleanup |
+| Recently completed | Server-authoritative rooms, SSE sync, explicit AI generation modes, exit confirmation flow, decision logs, automated API/UI E2E tests, room cleanup, first-use LAN/AI onboarding |
 | Current focus | Make the two-player loop understandable, debuggable, and repeatable |
-| Current blockers | No persistence, no public deployment security, limited onboarding for first-time LAN play |
+| Current blockers | No persistence, no public deployment security, first playtest feedback not collected yet |
 | Next review date | 2026-06-17 |
 
 ## 3. MVP Overview
@@ -50,13 +50,14 @@ _Last updated: 2026-06-11_
 | Explicit AI generation modes | Strategy / AI | Must | MVP 1 | Done | Local / player AI / server AI are separated |
 | Decision and battle logs | Debugging | Must | MVP 1 | Done | Shows selected rule, action, and skip reasons |
 | Exit confirmation flow | Room flow | Should | MVP 1 | Done | Solo/offline direct exit; online needs confirmation |
+| First-use LAN/AI onboarding | UX | Must | MVP 1 | Done | Lobby checklist, room-state hints, and generation-mode guidance |
 | End-to-end tests | QA | Must | MVP 1 | Testing | HTTP and browser UI E2E cover create, join, generate, confirm, battle behavior, and exit confirmation |
 | Rule editor | Strategy | Should | MVP 2 | Planned | Manual edit after AI generation |
 | More tactical conditions/actions | Combat / Strategy | Should | MVP 2 | Planned | Distance control, dodge directions, chase/retreat |
 | Battle history and replay | Meta | Should | MVP 2 | Planned | Needs persistence |
 | Room cleanup | Server | Must | MVP 1 | Done | Expires offline idle rooms and closed rooms with configurable TTLs |
 | Public deployment hardening | Platform | Must | MVP 3 | Not Started | HTTPS, auth, rate limits, API key safety |
-| Onboarding/tutorial | UX | Should | MVP 3 | Not Started | Explain AI vs local generation and rule preview |
+| Public onboarding/tutorial | UX | Should | MVP 3 | Not Started | Full external tester tutorial beyond MVP 1 quick-start guidance |
 
 ## 5. MVP Details
 
@@ -81,6 +82,7 @@ _Last updated: 2026-06-11_
   - Confirm strategies and start a server-authoritative battle.
   - Show battle state, results, and logs through SSE.
   - Restart or exit with clear room flow.
+  - Show lightweight first-use guidance for LAN setup and AI generation modes.
 - **Excluded:**
   - Public-hosting security.
   - Persistent accounts or match history.
@@ -90,6 +92,7 @@ _Last updated: 2026-06-11_
   - Both players can generate and confirm rules.
   - The match starts without manual server intervention.
   - The UI clearly shows whether rules came from local generation or AI.
+  - First-time players can see LAN setup and AI mode guidance before battle.
   - Players can understand why a tank moved, fired, waited, or skipped an action.
   - A player can exit cleanly, with confirmation when both players are online.
 - **Risks:**
@@ -97,7 +100,7 @@ _Last updated: 2026-06-11_
   - LAN/firewall/proxy issues may confuse first-time setup.
   - SSE is adequate now but may become limiting for richer real-time interactions.
 - **Next actions:**
-  1. Improve first-use guidance for LAN access and AI generation modes.
+  1. Validate first-use guidance during LAN playtest.
   2. Extend E2E tests for more strategy and error-path regressions.
   3. Collect playtest feedback on whether strategy iteration feels fun.
   4. Decide whether MVP 2 should start with rule editor or battle history.
@@ -133,7 +136,7 @@ _Last updated: 2026-06-11_
 |---|---|---|---|
 | Add full browser E2E test for two-player duel | TBD | Testing | Covers two browser contexts, strategy generation/confirmation, battle behavior, and exit confirmation |
 | Add room cleanup / expiry | TBD | Done | Offline idle rooms and closed rooms now expire automatically |
-| Improve onboarding copy for AI modes and LAN access | TBD | Planned | Reduces confusion during playtests |
+| Improve onboarding copy for AI modes and LAN access | TBD | Done | Added lobby checklist, room-state hints, and mode-specific generation guidance |
 | Collect first playtest feedback | TBD | Planned | Validate whether strategy iteration is fun |
 | Decide persistence approach | TBD | Needs Decision | Required for MVP 2 history/replay |
 
@@ -149,7 +152,7 @@ _Last updated: 2026-06-11_
 
 | Risk / Dependency | Impact | Affected MVP | Mitigation | Status |
 |---|---|---|---|---|
-| Browser or LAN caching makes testers see old code | Medium | MVP 1 | Static responses use `Cache-Control: no-store`; ask testers to hard refresh | Mitigated |
+| Browser or LAN caching makes testers see old code | Medium | MVP 1 | Static responses use `Cache-Control: no-store`; UI also reminds testers to check cache/proxy/VPN when LAN access fails | Mitigated |
 | AI API keys are unsafe on public deployment if forwarded casually | High | MVP 3 | Require HTTPS, auth, server-side key isolation, or server-only AI mode | Open |
 | In-memory rooms vanish on restart | Medium | MVP 2 | Add persistence or communicate MVP limitation; cleanup prevents stale memory growth only | Open |
 | Browser UI regressions in multi-browser flow | Medium | MVP 1 | Browser UI E2E now covers the main happy path; extend edge cases over time | Mitigated |
@@ -165,6 +168,7 @@ _Last updated: 2026-06-11_
 | 2026-06-10 | Added automated test coverage for player A movement/fire regression and CI/pre-commit test flow | Reduces risk that AI battle behavior regresses after future changes | Marked E2E coverage In Progress and kept browser UI automation as next gap |
 | 2026-06-11 | Added browser UI E2E for the two-player room flow, player A behavior, and exit confirmation | Validates the real user path through two independent browser sessions | Marked E2E coverage Testing; moved room cleanup to the next highest gap |
 | 2026-06-11 | Added automatic cleanup for offline idle rooms and closed rooms | Reduces stale in-memory room buildup during LAN testing | Moved room cleanup into MVP 1 and marked it Done |
+| 2026-06-11 | Added first-use onboarding for LAN setup, room flow, and AI generation modes | Makes the two-player loop easier to start and reduces mode-selection confusion | Marked MVP 1 onboarding guidance Done; left full public tutorial for MVP 3 |
 
 ## 10. Decision Log
 
@@ -177,6 +181,7 @@ _Last updated: 2026-06-11_
 | 2026-06-10 | Run `npm test` automatically in CI and optional local pre-commit hooks | Battle regressions should be caught before merging or local commits | Added GitHub Actions test workflow and hook installer |
 | 2026-06-11 | Run browser UI E2E separately from default local tests | Full UI tests require Playwright/browser setup and are better suited for CI or explicit local validation | Added `npm run test:ui` and CI Playwright installation |
 | 2026-06-11 | Keep room cleanup in-memory and configurable before adding persistence | MVP 1 needs stability without introducing a database yet | Added TTL environment variables and left battle history/persistence for MVP 2 |
+| 2026-06-11 | Keep MVP 1 onboarding lightweight and embedded in the main UI | First LAN testers need just-in-time guidance more than a separate tutorial system | Added quick-start cards and contextual room/mode hints; reserved full tutorial for MVP 3 |
 
 ## 11. Open Questions
 
