@@ -12,7 +12,10 @@ const rootDir = resolve(__dirname, "../..");
 const port = Number(process.env.PORT || 5173);
 const host = process.env.HOST || "127.0.0.1";
 const manager = new RoomManager({
-  strategyGenerator: createAiStrategyGenerator()
+  strategyGenerator: createAiStrategyGenerator(),
+  roomIdleTtlMs: readPositiveNumberEnv("ROOM_IDLE_TTL_MS"),
+  closedRoomTtlMs: readPositiveNumberEnv("CLOSED_ROOM_TTL_MS"),
+  cleanupIntervalMs: readPositiveNumberEnv("ROOM_CLEANUP_INTERVAL_MS")
 });
 const SSE_HEARTBEAT_MS = 10000;
 const SSE_RETRY_MS = 2000;
@@ -252,6 +255,11 @@ function createGenerationOptions(body) {
     ...aiConfig,
     mode: body?.generationMode || body?.mode || "auto"
   };
+}
+
+function readPositiveNumberEnv(name) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
 function sendError(res, error) {

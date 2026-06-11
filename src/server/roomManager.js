@@ -5,6 +5,9 @@ import { generateLocalStrategyRules } from "../shared/localStrategyGenerator.js"
 import { validateRuleSet } from "../shared/rules.js";
 
 const PLAYER_IDS = Object.freeze(["A", "B"]);
+const DEFAULT_ROOM_IDLE_TTL_MS = 30 * 60 * 1000;
+const DEFAULT_CLOSED_ROOM_TTL_MS = 5 * 60 * 1000;
+const DEFAULT_CLEANUP_INTERVAL_MS = 60 * 1000;
 
 export class RoomError extends Error {
   constructor(statusCode, message) {
@@ -21,10 +24,19 @@ export class RoomManager {
     this.battleOptions = options.battleOptions || {};
     this.codeLength = options.codeLength || 6;
     this.disconnectGraceMs = options.disconnectGraceMs ?? 5000;
+    this.roomIdleTtlMs = options.roomIdleTtlMs ?? DEFAULT_ROOM_IDLE_TTL_MS;
+    this.closedRoomTtlMs = options.closedRoomTtlMs ?? DEFAULT_CLOSED_ROOM_TTL_MS;
+    this.cleanupIntervalMs = options.cleanupIntervalMs ?? DEFAULT_CLEANUP_INTERVAL_MS;
+    this.now = options.now || (() => Date.now());
+    this.cleanupTimer = null;
     this.tokenFactory = options.tokenFactory || createPlayerToken;
     this.strategyGenerator = options.strategyGenerator || {
       generate: (prompt) => generateLocalStrategyRules(prompt)
     };
+
+    if (options.autoCleanup ?? true) {
+      this.startCleanupTimer();
+    }
   }
 
   createRoom({ playerName = "玩家 A" } = {}) {
@@ -45,8 +57,8 @@ export class RoomManager {
       result: null,
       exitRequest: null,
       closedAt: null,
-      createdAt: Date.now(),
-      updatedAt: Date.now()
+      createdAt: this.now(),
+      updatedAt: this.now()
     };
 
     this.rooms.set(code, room);
@@ -180,7 +192,7 @@ export class RoomManager {
 
     room.exitRequest = {
       requesterId: playerId,
-      requestedAt: Date.now()
+      requestedAt: this.now()
     };
     this.touch(room);
     this.emit(room, "room:update", this.toSnapshot(room));
@@ -264,7 +276,7 @@ export class RoomManager {
   }
 
   disconnectPlayer(code, playerId) {
-    const room = this.rooms.get(code);
+    const room = this.rooms.get(normalizeCode(code));
     if (!room || !room.players[playerId]) {
       return null;
     }
@@ -291,6 +303,19 @@ export class RoomManager {
 
   getSnapshot(code) {
     return this.toSnapshot(this.getRoom(code));
+  }
+
+  cleanupExpiredRooms(now = this.now()) {
+    const removedCodes = [];
+    this.rooms.forEach((room, code) => {
+      if (!this.isRoomExpired(room, now)) {
+        return;
+      }
+
+      this.removeRoom(room);
+      removedCodes.push(code);
+    });
+    return removedCodes;
   }
 
   getRoom(code) {
@@ -361,8 +386,33 @@ export class RoomManager {
     }
   }
 
+  startCleanupTimer() {
+    if (this.cleanupTimer || this.cleanupIntervalMs <= 0) {
+      return;
+    }
+
+    this.cleanupTimer = setInterval(() => {
+      this.cleanupExpiredRooms();
+    }, this.cleanupIntervalMs);
+    this.cleanupTimer.unref?.();
+  }
+
+  stopCleanupTimer() {
+    if (!this.cleanupTimer) {
+      return;
+    }
+
+    clearInterval(this.cleanupTimer);
+    this.cleanupTimer = null;
+  }
+
+  destroy() {
+    this.stopCleanupTimer();
+    this.rooms.forEach((room) => this.removeRoom(room));
+  }
+
   markPlayerDisconnected(code, playerId) {
-    const room = this.rooms.get(code);
+    const room = this.rooms.get(normalizeCode(code));
     if (!room || !room.players[playerId] || room.connections[playerId] > 0) {
       return;
     }
@@ -384,7 +434,7 @@ export class RoomManager {
   }
 
   touch(room) {
-    room.updatedAt = Date.now();
+    room.updatedAt = this.now();
   }
 
   emit(room, event, data) {
@@ -396,12 +446,12 @@ export class RoomManager {
   closeRoom(room, { requesterId, confirmerId, message }) {
     this.stopTimer(room);
     room.status = "closed";
-    room.closedAt = Date.now();
+    room.closedAt = this.now();
     room.exitRequest = {
       requesterId,
       confirmerId,
-      requestedAt: room.exitRequest?.requestedAt || Date.now(),
-      confirmedAt: Date.now()
+      requestedAt: room.exitRequest?.requestedAt || this.now(),
+      confirmedAt: this.now()
     };
     room.result = {
       type: "exit",
@@ -419,6 +469,36 @@ export class RoomManager {
       result: room.result
     });
     return snapshot;
+  }
+
+  isRoomExpired(room, now) {
+    if (room.status === "closed") {
+      return now - (room.closedAt || room.updatedAt) >= this.closedRoomTtlMs;
+    }
+
+    if (!this.areAllPlayersDisconnected(room)) {
+      return false;
+    }
+
+    return now - room.updatedAt >= this.roomIdleTtlMs;
+  }
+
+  areAllPlayersDisconnected(room) {
+    return PLAYER_IDS.every((playerId) =>
+      !room.players[playerId] || !room.players[playerId].connected
+    );
+  }
+
+  removeRoom(room) {
+    this.stopTimer(room);
+    PLAYER_IDS.forEach((playerId) => {
+      if (room.disconnectTimers[playerId]) {
+        clearTimeout(room.disconnectTimers[playerId]);
+        room.disconnectTimers[playerId] = null;
+      }
+    });
+    room.listeners.clear();
+    this.rooms.delete(room.code);
   }
 
   toSnapshot(room) {

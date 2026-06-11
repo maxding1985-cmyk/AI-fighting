@@ -239,6 +239,75 @@ test("exit closes immediately when opponent is offline", () => {
   assert.equal(closed.exitRequest.confirmerId, "A");
 });
 
+test("cleanup removes idle rooms only after all players are offline", () => {
+  let now = 1000;
+  const manager = new RoomManager({
+    autoTick: false,
+    autoCleanup: false,
+    disconnectGraceMs: 0,
+    roomIdleTtlMs: 100,
+    now: () => now
+  });
+  const created = manager.createRoom({ playerName: "Alpha" });
+  const code = created.room.code;
+  manager.connectPlayer(code, "A");
+
+  now += 1000;
+  assert.deepEqual(manager.cleanupExpiredRooms(), []);
+  assert.equal(manager.getSnapshot(code).code, code);
+
+  manager.disconnectPlayer(code, "A");
+  now += 99;
+  assert.deepEqual(manager.cleanupExpiredRooms(), []);
+
+  now += 1;
+  assert.deepEqual(manager.cleanupExpiredRooms(), [code]);
+  assert.throws(
+    () => manager.getSnapshot(code),
+    (error) => error instanceof RoomError && error.statusCode === 404
+  );
+});
+
+test("cleanup removes closed rooms using shorter closed-room ttl", () => {
+  let now = 2000;
+  const manager = new RoomManager({
+    autoTick: false,
+    autoCleanup: false,
+    roomIdleTtlMs: 10000,
+    closedRoomTtlMs: 50,
+    now: () => now
+  });
+  const created = manager.createRoom({ playerName: "Alpha" });
+  const code = created.room.code;
+
+  manager.requestExit(code, "A");
+  now += 49;
+  assert.deepEqual(manager.cleanupExpiredRooms(), []);
+
+  now += 1;
+  assert.deepEqual(manager.cleanupExpiredRooms(), [code]);
+  assert.throws(
+    () => manager.getSnapshot(code),
+    (error) => error instanceof RoomError && error.statusCode === 404
+  );
+});
+
+test("destroy clears all rooms and timers", () => {
+  const manager = new RoomManager({
+    autoTick: false,
+    autoCleanup: true,
+    cleanupIntervalMs: 10
+  });
+  const created = manager.createRoom({ playerName: "Alpha" });
+  const code = created.room.code;
+  manager.disconnectPlayer(code, "A");
+
+  manager.destroy();
+
+  assert.equal(manager.cleanupTimer, null);
+  assert.equal(manager.rooms.size, 0);
+});
+
 function positionOf(room, playerId) {
   const tank = room.gameState?.tanks.find((item) => item.playerId === playerId);
   return tank ? `${tank.x},${tank.y}` : "missing";
