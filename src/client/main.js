@@ -260,6 +260,8 @@ app.innerHTML = `
           </div>
         </div>
 
+        <div class="trigger-feed" id="triggerFeed"></div>
+
         <div class="result-panel" id="resultPanel" hidden></div>
       </section>
 
@@ -313,6 +315,7 @@ const elements = {
   tankBName: document.querySelector("#tankBName"),
   actionA: document.querySelector("#actionA"),
   actionB: document.querySelector("#actionB"),
+  triggerFeed: document.querySelector("#triggerFeed"),
   restartButton: document.querySelector("#restartButton"),
   resultPanel: document.querySelector("#resultPanel"),
   opponentRules: document.querySelector("#opponentRules"),
@@ -737,6 +740,7 @@ function renderApp() {
   renderPlayers();
   renderRulePanels(currentPlayer, opponent);
   renderTelemetry();
+  renderLiveTriggers();
   renderLogs();
   renderResult();
   renderCanvas();
@@ -803,15 +807,17 @@ function renderRulePanels(currentPlayer, opponent) {
   const currentRuleSet = currentPlayer?.ruleSet || appState.generatedRuleSet;
   const currentMeta = currentRuleSet ? appState.generationResult : null;
   elements.rulePreview.innerHTML = currentRuleSet
-    ? renderRuleSet(currentRuleSet, currentMeta)
+    ? renderRuleSet(currentRuleSet, currentMeta, { playerId: appState.playerId })
     : `<p>输入战术后点击“生成规则”，或者直接选择一个预设策略。</p>`;
 
   elements.opponentRules.innerHTML = opponent?.ruleSet
-    ? renderRuleSet(opponent.ruleSet)
+    ? renderRuleSet(opponent.ruleSet, null, { playerId: opponent.id })
     : `<p>${opponent ? "对手还没有确认规则。" : "等待第二名玩家加入。"}</p>`;
 }
 
-function renderRuleSet(ruleSet, meta = null) {
+function renderRuleSet(ruleSet, meta = null, { playerId = null } = {}) {
+  const activeRuleKey = getActiveRuleKey(playerId);
+  const stats = getRuleStatsMap(playerId);
   return `
     <h3>${escapeHtml(ruleSet.name)}</h3>
     <p>${escapeHtml(ruleSet.description || "暂无说明")}</p>
@@ -819,16 +825,142 @@ function renderRuleSet(ruleSet, meta = null) {
       ${meta ? `<span>来源：${escapeHtml(formatGenerationSource(meta))}</span>` : ""}
       <span>${escapeHtml(formatRuleCapabilities(ruleSet))}</span>
     </div>
-    <ul>
-      ${ruleSet.rules.map((rule) => `
-        <li>
-          <span>P${rule.priority}</span>
-          <strong>${escapeHtml(rule.when.map((item) => CONDITION_LABELS[item] || item).join(" + "))}</strong>
-          <em>${escapeHtml(ACTION_LABELS[rule.action] || rule.action)}</em>
-        </li>
-      `).join("")}
-    </ul>
+    <strong class="rule-section-label">战术卡</strong>
+    <div class="rule-cards" aria-label="战术卡">
+      ${ruleSet.rules.map((rule) => {
+        const ruleKey = createRuleKey(rule);
+        const triggerCount = stats[ruleKey]?.count || 0;
+        const isActive = ruleKey && ruleKey === activeRuleKey;
+        return `
+          <article class="rule-card ${isActive ? "active" : ""}" data-rule-key="${escapeHtml(ruleKey)}">
+            <div class="rule-card-head">
+              <span>P${rule.priority}</span>
+              <strong>${escapeHtml(getRuleCardTitle(rule))}</strong>
+            </div>
+            <p>${escapeHtml(formatRuleTrigger(rule))}</p>
+            <div class="rule-card-meta">
+              <em>${escapeHtml(ACTION_LABELS[rule.action] || rule.action)}</em>
+              <small>触发 ${triggerCount} 次</small>
+            </div>
+            <small class="rule-risk">${escapeHtml(getRuleRiskText(rule))}</small>
+          </article>
+        `;
+      }).join("")}
+    </div>
   `;
+}
+
+function renderLiveTriggers() {
+  const state = getVisibleGameState();
+  elements.triggerFeed.innerHTML = ["A", "B"].map((playerId) => {
+    const player = getPlayer(playerId);
+    const action = state.lastActions?.[playerId];
+    const rule = action?.rule;
+    const playerName = player?.name || `玩家 ${playerId}`;
+
+    if (!rule) {
+      return `
+        <article class="trigger-card idle" style="--player-color: ${PLAYER_COLORS[playerId]}">
+          <span>${escapeHtml(playerId)}</span>
+          <div>
+            <strong>${escapeHtml(playerName)}</strong>
+            <p>等待规则触发</p>
+          </div>
+        </article>
+      `;
+    }
+
+    return `
+      <article class="trigger-card active" style="--player-color: ${PLAYER_COLORS[playerId]}">
+        <span>${escapeHtml(playerId)}</span>
+        <div>
+          <strong>${escapeHtml(playerName)}：${escapeHtml(getRuleCardTitle(rule))}</strong>
+          <p>${escapeHtml(formatRuleTrigger(rule))} -> ${escapeHtml(ACTION_LABELS[action.action] || action.action)}</p>
+        </div>
+      </article>
+    `;
+  }).join("");
+}
+
+function getActiveRuleKey(playerId) {
+  if (!playerId) {
+    return "";
+  }
+
+  const action = getVisibleGameState()?.lastActions?.[playerId];
+  return action?.ruleKey || createRuleKey(action?.rule);
+}
+
+function getRuleStatsMap(playerId) {
+  if (!playerId) {
+    return {};
+  }
+
+  return getVisibleGameState()?.ruleStats?.[playerId] || {};
+}
+
+function createRuleKey(rule) {
+  if (!rule) {
+    return "";
+  }
+
+  return `${rule.priority}|${rule.when.join("&")}|${rule.action}`;
+}
+
+function formatRuleTrigger(rule) {
+  return rule.when.map((item) => CONDITION_LABELS[item] || item).join(" + ");
+}
+
+function getRuleCardTitle(rule) {
+  const conditions = new Set(rule.when);
+  if (rule.action === "shoot" && conditions.has("enemy_in_line")) {
+    return "直线开炮";
+  }
+  if (rule.action === "shoot") {
+    return "压制射击";
+  }
+  if (conditions.has("bullet_in_front") || conditions.has("bullet_near")) {
+    return rule.action === "move_backward" ? "遇弹后撤" : "遇弹闪避";
+  }
+  if (conditions.has("wall_ahead") || conditions.has("wall_behind")) {
+    return "撞墙改向";
+  }
+  if (conditions.has("enemy_on_left") || conditions.has("enemy_on_right") || conditions.has("enemy_behind")) {
+    return "调整炮线";
+  }
+  if (conditions.has("random_30")) {
+    return "随机扰动";
+  }
+  if (rule.action === "move_forward") {
+    return "推进压迫";
+  }
+  if (rule.action === "move_backward") {
+    return "拉开距离";
+  }
+  if (rule.action === "wait") {
+    return "等待观察";
+  }
+  return ACTION_LABELS[rule.action] || "战术动作";
+}
+
+function getRuleRiskText(rule) {
+  const conditions = new Set(rule.when);
+  if (rule.action === "shoot" && !conditions.has("enemy_in_line")) {
+    return "风险：可能空放火力，冷却期会错过机会";
+  }
+  if (conditions.has("random_30")) {
+    return "风险：带随机性，可能制造惊喜也可能打乱节奏";
+  }
+  if (rule.action === "wait") {
+    return "风险：保守兜底，触发太多说明前置策略不够明确";
+  }
+  if (conditions.has("bullet_in_front") || conditions.has("bullet_near")) {
+    return "价值：把生存优先级提前，适合反制火力压制";
+  }
+  if (conditions.has("wall_ahead") || conditions.has("wall_behind")) {
+    return "价值：避免卡墙，让策略持续执行";
+  }
+  return "价值：让自然语言战术变成可观察的触发规则";
 }
 
 function renderTelemetry() {
@@ -862,6 +994,58 @@ function renderResult() {
     <strong>${escapeHtml(getResultTitle(result))}</strong>
     <p>${escapeHtml(result.message)}</p>
     <small>结束原因：${escapeHtml(result.reason)} · 用时 ${result.tick} tick</small>
+    ${renderBattleSummary(result)}
+  `;
+}
+
+function renderBattleSummary(result) {
+  const summaries = ["A", "B"]
+    .map((playerId) => renderPlayerRuleSummary(playerId))
+    .filter(Boolean)
+    .join("");
+  const decisive = result.decisiveRule?.rule
+    ? `
+      <p class="decisive-rule">
+        关键命中：${escapeHtml(result.decisiveRule.playerId)} 方的
+        「${escapeHtml(getRuleCardTitle(result.decisiveRule.rule))}」
+      </p>
+    `
+    : "";
+
+  if (!summaries && !decisive) {
+    return "";
+  }
+
+  return `
+    <div class="battle-summary">
+      <h3>战术复盘</h3>
+      ${decisive}
+      <div class="summary-grid">${summaries}</div>
+    </div>
+  `;
+}
+
+function renderPlayerRuleSummary(playerId) {
+  const player = getPlayer(playerId);
+  const ruleSet = player?.ruleSet;
+  if (!ruleSet) {
+    return "";
+  }
+
+  const stats = getRuleStatsMap(playerId);
+  const triggered = Object.values(stats).sort((left, right) => right.count - left.count);
+  const top = triggered[0];
+  const unusedCount = ruleSet.rules.filter((rule) => !stats[createRuleKey(rule)]).length;
+  const topText = top
+    ? `最常触发：「${getRuleCardTitle(top.rule)}」${top.count} 次`
+    : "本局没有触发可统计规则";
+
+  return `
+    <article>
+      <strong>${escapeHtml(playerId)} 方 · ${escapeHtml(player.name)}</strong>
+      <p>${escapeHtml(topText)}</p>
+      <small>${unusedCount > 0 ? `${unusedCount} 张战术卡没有触发` : "所有战术卡都至少触发过一次"}</small>
+    </article>
   `;
 }
 

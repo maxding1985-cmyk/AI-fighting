@@ -71,6 +71,41 @@ test("a bullet hit finishes the battle and sets winner", () => {
   assert.equal(state.tanks.find((tank) => tank.playerId === "B").alive, false);
 });
 
+test("battle records rule trigger stats and decisive hit rule", () => {
+  const engine = new BattleEngine({
+    seed: 7,
+    maxTicks: 10,
+    map: { width: 7, height: 3, walls: [] },
+    ruleSets: { A: shooter, B: waiter }
+  });
+
+  engine.state.tanks[0] = {
+    ...engine.state.tanks[0],
+    x: 1,
+    y: 1,
+    direction: "right"
+  };
+  engine.state.tanks[1] = {
+    ...engine.state.tanks[1],
+    x: 5,
+    y: 1,
+    direction: "left"
+  };
+
+  let state = engine.getState();
+  while (state.status !== "finished") {
+    state = engine.step();
+  }
+
+  const playerAStats = Object.values(state.ruleStats.A);
+  const shootStats = playerAStats.find((item) => item.rule.action === "shoot");
+
+  assert.equal(Boolean(shootStats), true);
+  assert.equal(shootStats.count > 0, true);
+  assert.equal(state.result.decisiveRule.playerId, "A");
+  assert.equal(state.result.decisiveRule.rule.action, "shoot");
+});
+
 test("tank cannot move outside the map", () => {
   const engine = new BattleEngine({
     seed: 8,

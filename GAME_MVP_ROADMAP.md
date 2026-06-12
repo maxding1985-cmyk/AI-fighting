@@ -1,6 +1,6 @@
 # Game MVP Roadmap
 
-_Last updated: 2026-06-11_
+_Last updated: 2026-06-12_
 
 ## 1. Game Vision
 
@@ -24,8 +24,8 @@ _Last updated: 2026-06-11_
 | Current MVP | MVP 1 - LAN Playable Duel |
 | Overall status | In Progress / 可局域网试玩 |
 | Recently completed | Server-authoritative rooms, SSE sync, explicit AI generation modes, exit confirmation flow, decision logs, automated API/UI E2E tests, room cleanup, first-use LAN/AI onboarding |
-| Current focus | Make the two-player loop understandable, debuggable, and repeatable |
-| Current blockers | No persistence, no public deployment security, first playtest feedback not collected yet |
+| Current focus | Validate whether AI-generated rules feel understandable, observable, and fun |
+| Current blockers | Core fun risk: generated rules may feel like background logic instead of player-owned tactics; no persistence; no public deployment security |
 | Next review date | 2026-06-17 |
 
 ## 3. MVP Overview
@@ -33,7 +33,7 @@ _Last updated: 2026-06-11_
 | MVP | Goal | Status | Core Scope | Acceptance Criteria |
 |---|---|---|---|---|
 | MVP 0 - Core Combat Prototype | Validate rule-driven automatic tank combat | Done | Local battle engine, rule validation, canvas rendering, basic shooting/movement | A user can run a local match and see rules drive tank actions |
-| MVP 1 - LAN Playable Duel | Complete a two-player room-based duel over LAN | In Progress | Rooms, joining, AI/local rule generation, ready flow, SSE sync, restart, exit, logs | Two players on different browsers/devices can complete one duel and understand what happened |
+| MVP 1 - LAN Playable Duel | Complete a two-player room-based duel over LAN | In Progress | Rooms, joining, AI/local rule generation, rule cards, ready flow, SSE sync, restart, exit, logs | Two players on different browsers/devices can complete one duel, see which rules fired, and understand what happened |
 | MVP 2 - Replayable Strategy Lab | Make repeated strategy iteration valuable | Planned | Rule editor, richer conditions/actions, battle replay/history, tuning tools | Players can iterate multiple strategies without developer help and compare outcomes |
 | MVP 3 - Public Test Build | Prepare for external testing | Not Started | HTTPS-ready deployment, auth/key safety, persistence, onboarding, E2E tests, polish | External testers can play safely without local setup |
 
@@ -49,6 +49,7 @@ _Last updated: 2026-06-11_
 | Refresh/session restore | Multiplayer | Should | MVP 1 | Done | Local/session storage identity restore |
 | Explicit AI generation modes | Strategy / AI | Must | MVP 1 | Done | Local / player AI / server AI are separated |
 | Decision and battle logs | Debugging | Must | MVP 1 | Done | Shows selected rule, action, and skip reasons |
+| Rule-card visualization and trigger feedback | Core UX / Fun | Must | MVP 1 | Testing | Shows generated rules as tactical cards, highlights live triggers, and summarizes rule usage after battle |
 | Exit confirmation flow | Room flow | Should | MVP 1 | Done | Solo/offline direct exit; online needs confirmation |
 | First-use LAN/AI onboarding | UX | Must | MVP 1 | Done | Lobby checklist, room-state hints, and generation-mode guidance |
 | End-to-end tests | QA | Must | MVP 1 | Testing | HTTP and browser UI E2E cover create, join, generate, confirm, battle behavior, and exit confirmation |
@@ -79,8 +80,10 @@ _Last updated: 2026-06-11_
   - Create/join rooms.
   - Share invitation links.
   - Generate strategy rules via local, player AI, or server AI mode.
+  - Show generated rules as readable tactical cards.
   - Confirm strategies and start a server-authoritative battle.
-  - Show battle state, results, and logs through SSE.
+  - Show battle state, live rule triggers, results, and logs through SSE.
+  - Summarize rule usage after battle.
   - Restart or exit with clear room flow.
   - Show lightweight first-use guidance for LAN setup and AI generation modes.
 - **Excluded:**
@@ -93,16 +96,19 @@ _Last updated: 2026-06-11_
   - The match starts without manual server intervention.
   - The UI clearly shows whether rules came from local generation or AI.
   - First-time players can see LAN setup and AI mode guidance before battle.
+  - Players can see which tactical rule just triggered during battle.
+  - Players can review which rules fired often, never fired, or created the decisive hit.
   - Players can understand why a tank moved, fired, waited, or skipped an action.
   - A player can exit cleanly, with confirmation when both players are online.
 - **Risks:**
   - AI-generated rules may still be hard for players to judge before battle.
+  - The core loop may feel passive if rules are not visible enough as player-owned tactics.
   - LAN/firewall/proxy issues may confuse first-time setup.
   - SSE is adequate now but may become limiting for richer real-time interactions.
 - **Next actions:**
-  1. Validate first-use guidance during LAN playtest.
+  1. Playtest whether tactical cards and live trigger highlights make the rule-generation loop more fun.
   2. Extend E2E tests for more strategy and error-path regressions.
-  3. Collect playtest feedback on whether strategy iteration feels fun.
+  3. Decide whether the next fun spike should add rule editing, richer rule vocabulary, or pre-battle mind-game choices.
   4. Decide whether MVP 2 should start with rule editor or battle history.
 
 ### MVP 2 - Replayable Strategy Lab
@@ -137,7 +143,8 @@ _Last updated: 2026-06-11_
 | Add full browser E2E test for two-player duel | TBD | Testing | Covers two browser contexts, strategy generation/confirmation, battle behavior, and exit confirmation |
 | Add room cleanup / expiry | TBD | Done | Offline idle rooms and closed rooms now expire automatically |
 | Improve onboarding copy for AI modes and LAN access | TBD | Done | Added lobby checklist, room-state hints, and mode-specific generation guidance |
-| Collect first playtest feedback | TBD | Planned | Validate whether strategy iteration is fun |
+| Add rule-card / live-trigger fun spike | TBD | Testing | Makes AI-generated rules observable as player-owned tactics |
+| Collect first playtest feedback | TBD | In Progress | Validate whether strategy iteration is fun, starting with the "it feels boring" feedback |
 | Decide persistence approach | TBD | Needs Decision | Required for MVP 2 history/replay |
 
 ## 7. Feedback Inbox
@@ -147,6 +154,7 @@ _Last updated: 2026-06-11_
 | 2026-06-10 | Player command “随机运动 一直开炮 遇到子弹躲避” caused confusion when strategy appeared to spin and not fire | Usability / AI strategy | MVP 1 | Added explicit AI/local modes, decision logs, and local keyword handling for “开炮” | Addressed |
 | 2026-06-10 | Exit should be direct when only one player is in the room | Usability | MVP 1 | Solo/offline exit now closes immediately; online opponent still confirms | Addressed |
 | 2026-06-10 | AI generation logic was unclear | Usability / Product | MVP 1 | Split generation into local, player AI, and server AI modes | Addressed |
+| 2026-06-12 | Current core feels boring even though AI-generated rules remain the desired core | Fun Factor / Core loop | MVP 1 / MVP 2 | Run a small fun spike that makes generated rules visible as tactical cards, live triggers, and battle summaries | Testing |
 
 ## 8. Risks & Dependencies
 
@@ -157,6 +165,7 @@ _Last updated: 2026-06-11_
 | In-memory rooms vanish on restart | Medium | MVP 2 | Add persistence or communicate MVP limitation; cleanup prevents stale memory growth only | Open |
 | Browser UI regressions in multi-browser flow | Medium | MVP 1 | Browser UI E2E now covers the main happy path; extend edge cases over time | Mitigated |
 | Rule vocabulary may limit strategy expression | Medium | MVP 2 | Add richer conditions/actions and manual editor | Open |
+| AI-generated rules feel like hidden background logic rather than player-owned tactics | High | MVP 1 / MVP 2 | Make rules visible as tactical cards, highlight live triggers, and summarize rule impact after battle before adding larger systems | Testing |
 
 ## 9. Progress Log
 
@@ -169,6 +178,7 @@ _Last updated: 2026-06-11_
 | 2026-06-11 | Added browser UI E2E for the two-player room flow, player A behavior, and exit confirmation | Validates the real user path through two independent browser sessions | Marked E2E coverage Testing; moved room cleanup to the next highest gap |
 | 2026-06-11 | Added automatic cleanup for offline idle rooms and closed rooms | Reduces stale in-memory room buildup during LAN testing | Moved room cleanup into MVP 1 and marked it Done |
 | 2026-06-11 | Added first-use onboarding for LAN setup, room flow, and AI generation modes | Makes the two-player loop easier to start and reduces mode-selection confusion | Marked MVP 1 onboarding guidance Done; left full public tutorial for MVP 3 |
+| 2026-06-12 | Started a fun spike for tactical rule cards, live trigger feedback, and battle summaries | Tests whether AI-generated rules become more fun when players can see and own them | Added MVP 1 rule-card visualization and trigger feedback as Testing |
 
 ## 10. Decision Log
 
@@ -182,6 +192,7 @@ _Last updated: 2026-06-11_
 | 2026-06-11 | Run browser UI E2E separately from default local tests | Full UI tests require Playwright/browser setup and are better suited for CI or explicit local validation | Added `npm run test:ui` and CI Playwright installation |
 | 2026-06-11 | Keep room cleanup in-memory and configurable before adding persistence | MVP 1 needs stability without introducing a database yet | Added TTL environment variables and left battle history/persistence for MVP 2 |
 | 2026-06-11 | Keep MVP 1 onboarding lightweight and embedded in the main UI | First LAN testers need just-in-time guidance more than a separate tutorial system | Added quick-start cards and contextual room/mode hints; reserved full tutorial for MVP 3 |
+| 2026-06-12 | Pause broad engineering expansion until the rule-generation loop feels more fun | User feedback suggests the core is technically working but emotionally flat | Prioritize rule visibility, trigger feedback, and tactical ownership before persistence or public deployment |
 
 ## 11. Open Questions
 
@@ -190,3 +201,4 @@ _Last updated: 2026-06-11_
 - What is the first external playtest group?
 - Should battle history be stored locally, server-side, or exported as files?
 - How complex should the rule editor become before it stops feeling like a lightweight game?
+- Do tactical cards and live trigger highlights make players want to iterate strategies, or does the game need a larger pivot such as pre-battle mind-game choices?

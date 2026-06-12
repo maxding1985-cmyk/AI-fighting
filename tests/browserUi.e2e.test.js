@@ -72,17 +72,21 @@ test("browser UI E2E covers two-player setup, battle behavior, and exit confirma
     await expectText(playerA.locator("#rulePreview"), "会移动");
     await expectText(playerA.locator("#rulePreview"), "会射击");
     await expectText(playerA.locator("#rulePreview"), "会躲子弹");
+    await expectText(playerA.locator("#rulePreview"), "遇弹后撤");
+    await expectText(playerA.locator("#rulePreview"), "触发 0 次");
     await playerA.locator("#confirmButton").click();
     await expectText(playerA.locator("#roomMessage"), "规则已确认");
 
     await playerB.locator("[data-preset='defensive']").click();
     await expectText(playerB.locator("#rulePreview"), "稳健防守型");
+    await expectText(playerB.locator("#rulePreview"), "战术卡");
     await playerB.locator("#confirmButton").click();
     await expectText(playerA.locator("#statusChip"), "战斗中");
     await expectText(playerB.locator("#statusChip"), "战斗中");
 
     await expectAction(playerA.locator("#actionA"), "射击");
     await expectAction(playerA.locator("#actionA"), /前进|后退/);
+    await expectText(playerA.locator("#triggerFeed"), "Player A");
     await expectText(playerA.locator("#logList"), "Player A 开火");
     await expectText(playerA.locator("#logList"), "Player A 决策");
 

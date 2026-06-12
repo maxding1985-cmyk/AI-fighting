@@ -88,6 +88,10 @@ export function createInitialState(options = {}) {
     ],
     bullets: [],
     lastActions: {},
+    ruleStats: {
+      A: {},
+      B: {}
+    },
     logs: [],
     result: null
   };
@@ -99,6 +103,7 @@ export class BattleEngine {
     this.rng = createRng(options.seed);
     this.state = options.state ? cloneState(options.state) : createInitialState(options);
     this.ruleSets = normalizeRuleSets(options.ruleSets);
+    this.ensureRuleStats();
   }
 
   reset(options = {}) {
@@ -106,6 +111,7 @@ export class BattleEngine {
     this.rng = createRng(options.seed);
     this.state = createInitialState(options);
     this.ruleSets = normalizeRuleSets(options.ruleSets || this.ruleSets);
+    this.ensureRuleStats();
     return this.getState();
   }
 
@@ -138,8 +144,10 @@ export class BattleEngine {
     actionPlans.forEach((plan) => {
       state.lastActions[plan.playerId] = {
         action: plan.action,
-        rule: plan.rule
+        rule: plan.rule,
+        ruleKey: createRuleKey(plan.rule)
       };
+      this.recordRuleTrigger(plan);
     });
     actionPlans.forEach((plan) => {
       const tank = this.findTank(plan.tankId);
@@ -239,6 +247,9 @@ export class BattleEngine {
       this.state.bullets.push({
         id: createId("bullet", this.state.tick, index),
         ownerTankId: tank.id,
+        ownerPlayerId: tank.playerId,
+        sourceRule: cloneRuleForTelemetry(plan.rule),
+        sourceRuleKey: createRuleKey(plan.rule),
         x: tank.x,
         y: tank.y,
         direction: tank.direction
@@ -297,11 +308,19 @@ export class BattleEngine {
 
     const loser = hits[0].tank;
     const winner = this.state.tanks.find((tank) => tank.id !== loser.id);
+    const decisiveRule = hits[0].bullet.sourceRule
+      ? {
+          playerId: hits[0].bullet.ownerPlayerId || winner.playerId,
+          rule: hits[0].bullet.sourceRule,
+          ruleKey: hits[0].bullet.sourceRuleKey || createRuleKey(hits[0].bullet.sourceRule)
+        }
+      : null;
     this.finishBattle({
       type: "win",
       reason: `${winner.playerId.toLowerCase()}_hit_${loser.playerId.toLowerCase()}`,
       winnerPlayerId: winner.playerId,
       loserPlayerId: loser.playerId,
+      decisiveRule,
       message: `${winner.name} 击中 ${loser.name}，获得胜利`
     });
   }
@@ -378,6 +397,35 @@ export class BattleEngine {
       : "";
     this.addLog(`${tank.name} 决策：${ruleText} -> ${formatAction(plan.action)}${skippedText}`);
   }
+
+  ensureRuleStats() {
+    this.state.ruleStats = this.state.ruleStats || {};
+    ["A", "B"].forEach((playerId) => {
+      this.state.ruleStats[playerId] = this.state.ruleStats[playerId] || {};
+    });
+  }
+
+  recordRuleTrigger(plan) {
+    if (!plan.rule) {
+      return;
+    }
+
+    this.ensureRuleStats();
+    const ruleKey = createRuleKey(plan.rule);
+    const playerStats = this.state.ruleStats[plan.playerId];
+    if (!playerStats[ruleKey]) {
+      playerStats[ruleKey] = {
+        ruleKey,
+        rule: cloneRuleForTelemetry(plan.rule),
+        count: 0,
+        firstTick: this.state.tick,
+        lastTick: this.state.tick
+      };
+    }
+
+    playerStats[ruleKey].count += 1;
+    playerStats[ruleKey].lastTick = this.state.tick;
+  }
 }
 
 const ACTION_DEBUG_LABELS = Object.freeze({
@@ -421,6 +469,26 @@ function normalizeRuleSets(ruleSets = {}) {
   });
 
   return normalized;
+}
+
+function createRuleKey(rule) {
+  if (!rule) {
+    return "";
+  }
+
+  return `${rule.priority}|${rule.when.join("&")}|${rule.action}`;
+}
+
+function cloneRuleForTelemetry(rule) {
+  if (!rule) {
+    return null;
+  }
+
+  return {
+    priority: rule.priority,
+    when: [...rule.when],
+    action: rule.action
+  };
 }
 
 function selectAction(state, tankId, ruleSet, rng) {
